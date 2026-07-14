@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>stream-diffs capability lab</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #090b10; color: #f2f4f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: radial-gradient(circle at 12% -10%, #18314a 0, transparent 34rem), #090b10; }
+    main { width: min(1380px, calc(100% - 48px)); margin: 0 auto; padding: 54px 0 96px; }
+    header { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 24px; margin-bottom: 42px; }
+    h1 { margin: 0; font-size: clamp(42px, 7vw, 84px); letter-spacing: -.065em; line-height: .9; }
+    header p { max-width: 620px; margin: 22px 0 0; color: #9aa6b8; font-size: 17px; line-height: 1.55; }
+    .badge { border: 1px solid #2d415a; color: #9ed9ff; padding: 8px 12px; border-radius: 999px; font: 600 12px/1 ui-monospace, monospace; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .card { min-width: 0; border: 1px solid #202733; border-radius: 16px; background: rgba(13, 16, 23, .82); overflow: hidden; box-shadow: 0 18px 50px rgba(0,0,0,.22); }
+    .card.wide { grid-column: 1 / -1; }
+    .card-title { display: flex; justify-content: space-between; align-items: center; min-height: 54px; padding: 0 16px; border-bottom: 1px solid #202733; }
+    .card-title h2 { margin: 0; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; }
+    .card-title span { color: #718096; font: 11px ui-monospace, monospace; }
+    .surface { min-height: 210px; }
+    button { appearance: none; border: 1px solid #344155; border-radius: 8px; padding: 7px 10px; background: #151b25; color: #d8e2ef; cursor: pointer; font: 600 12px/1 system-ui; }
+    button:hover { border-color: #5fa8db; color: white; }
+    .actions { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid #202733; }
+    .review-header { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px; }
+    .review-header strong { font-size: 12px; }
+    .review-header em { color: #72d6a2; font: normal 11px ui-monospace, monospace; }
+    .comment { margin: 7px 12px; padding: 10px 12px; border: 1px solid #31455d; border-radius: 9px; background: #111c28; color: #c8d8ea; font-size: 12px; }
+    #token-hover { position: fixed; z-index: 20; display: none; max-width: 280px; padding: 8px 10px; border: 1px solid #40556d; border-radius: 8px; background: #0d131c; box-shadow: 0 10px 30px #0009; color: #cfe9ff; font: 12px ui-monospace, monospace; pointer-events: none; }
+    @media (max-width: 900px) { main { width: min(100% - 24px, 720px); padding-top: 28px; } header { grid-template-columns: 1fr; } .grid { grid-template-columns: 1fr; } .card.wide { grid-column: auto; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>stream-diffs</h1>
+        <p>A real-browser capability lab for streaming code, unified and split diffs, review annotations, token hover, selection, accept/reject, and merge conflict resolution.</p>
+      </div>
+      <div class="badge">@pierre/diffs · lazy loaded</div>
+    </header>
+    <section class="grid">
+      <article class="card">
+        <div class="card-title"><h2>Unified review</h2><span>annotations · token hover</span></div>
+        <div id="unified" class="surface"></div>
+        <div class="actions"><button id="accept">Accept hunk</button><button id="reject">Reject hunk</button></div>
+      </article>
+      <article class="card">
+        <div class="card-title"><h2>Split review</h2><span>select additions</span></div>
+        <div id="split" class="surface"></div>
+        <div class="actions"><button id="select">Select changed line</button></div>
+      </article>
+      <article class="card wide">
+        <div class="card-title"><h2>Merge conflict</h2><span>current · incoming · both</span></div>
+        <div id="merge" class="surface"></div>
+      </article>
+      <article class="card wide">
+        <div class="card-title"><h2>Append-only stream</h2><span>FileStream → File</span></div>
+        <div id="stream" class="surface"></div>
+      </article>
+    </section>
+  </main>
+  <div id="token-hover"></div>
+  <script type="module" src="/demo.ts"></script>
+</body>
+</html>
