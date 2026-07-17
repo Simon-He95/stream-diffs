@@ -1,7 +1,7 @@
 {
   "name": "stream-diffs",
   "type": "module",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Lightweight, stream-native code and diff rendering for AI output, powered by @pierre/diffs and Shiki.",
   "author": "Simon He",
   "license": "MIT",
