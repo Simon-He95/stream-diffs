@@ -56,16 +56,16 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
     const revision = visualRevision
     applyEditorStyles(target, options)
     container = target
-    language = lang
+    language = normalizeSurfaceLanguage(lang)
     if (shouldRenderMergeConflict(code))
-      return createMergeConflictEditor(target, code, lang)
+      return createMergeConflictEditor(target, code, language)
     if (options.stream === false)
-      return createStaticFileEditor(target, code, lang)
+      return createStaticFileEditor(target, code, language)
     const createdStream = new CodeStreamController({
       ...sharedOptions(),
       ...pickPierreOptions(options),
-      fileName: `code.${lang || 'txt'}`,
-      language: lang,
+      fileName: `code.${language}`,
+      language,
       maxHeight: options.MAX_HEIGHT,
       autoScroll: options.autoScrollOnUpdate === false ? 'never' : 'near-bottom',
       autoScrollThresholdPx: options.autoScrollThresholdPx,
@@ -93,7 +93,7 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
     const revision = visualRevision
     applyEditorStyles(target, options)
     container = target
-    language = lang
+    language = normalizeSurfaceLanguage(lang)
     original = oldCode
     modified = newCode
     let createdSurface: DiffSurfaceController | undefined
@@ -123,8 +123,8 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
       createdDiffStream = new DiffStreamController({
         ...sharedOptions(),
         ...pickPierreOptions(options),
-        fileName: `code.${lang || 'txt'}`,
-        language: lang,
+        fileName: `code.${language}`,
+        language,
         diffStyle: options.diffStyle ?? (options.renderSideBySide === false ? 'unified' : 'split'),
         maxHeight: options.MAX_HEIGHT,
         wrap: options.wordWrap === 'on',
@@ -148,29 +148,30 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
   }
 
   async function updateCode(code: string, lang = language) {
+    const nextLanguage = normalizeSurfaceLanguage(lang)
     if (shouldRenderMergeConflict(code)) {
       if (surface?.getInput().kind === 'merge-conflict') {
-        language = lang
+        language = nextLanguage
         await surface.updateMergeConflict(asFile(code), options.lineAnnotations as any)
       }
       else if (container) {
-        await createMergeConflictEditor(container, code, lang)
+        await createMergeConflictEditor(container, code, nextLanguage)
       }
       return
     }
     if (options.stream === false) {
       if (surface?.getInput().kind === 'file') {
-        language = lang
+        language = nextLanguage
         await surface.updateFile(asFile(code), options.lineAnnotations as any)
       }
       else if (container) {
-        await createStaticFileEditor(container, code, lang)
+        await createStaticFileEditor(container, code, nextLanguage)
       }
       return
     }
     if (!stream) {
       if (container)
-        await createEditor(container, code, lang)
+        await createEditor(container, code, nextLanguage)
       return
     }
     if (stream.getState() === 'finalized') {
@@ -178,9 +179,9 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
         await stream.reset(code)
       return
     }
-    if (lang !== language) {
-      language = lang
-      await stream.setLanguage(lang)
+    if (nextLanguage !== language) {
+      language = nextLanguage
+      await stream.setLanguage(nextLanguage)
       if (code !== stream.getText())
         await stream.reset(code)
       return
@@ -195,7 +196,7 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
   async function updateDiff(oldCode: string, newCode: string, lang = language) {
     original = oldCode
     modified = newCode
-    language = lang
+    language = normalizeSurfaceLanguage(lang)
     if (diffStream) {
       await diffStream.update(oldCode, newCode)
       return
@@ -376,18 +377,18 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
     safeClean: cleanupEditor,
     setTheme,
     async setLanguage(next: string) {
-      language = next
-      await stream?.setLanguage(next)
-      await diffStream?.setLanguage(next)
+      language = normalizeSurfaceLanguage(next)
+      await stream?.setLanguage(language)
+      await diffStream?.setLanguage(language)
       if (surface && !diffStream) {
         const input = surface.getInput()
         if (input.kind === 'file' || input.kind === 'merge-conflict')
-          await surface.update({ ...input, file: { ...input.file, lang: next } })
+          await surface.update({ ...input, file: { ...input.file, lang: language } })
         else if (input.kind === 'diff' && 'oldFile' in input) {
           await surface.update({
             ...input,
-            oldFile: { ...input.oldFile, lang: next },
-            newFile: { ...input.newFile, lang: next },
+            oldFile: { ...input.oldFile, lang: language },
+            newFile: { ...input.newFile, lang: language },
           })
         }
       }
@@ -489,7 +490,7 @@ function isSurfaceRenderComplete(surface: DiffSurfaceController | undefined) {
     : 'oldFile' in input
       ? input.oldFile.lang ?? input.newFile.lang
       : surface.getDiff()?.lang
-  if (isPlainTextLanguage(language))
+  if (normalizeSurfaceLanguage(language) === 'text')
     return true
 
   const tokenizeMaxLength = Number(renderer.getTokenizeMaxLength?.() ?? 100_000)
@@ -500,8 +501,10 @@ function isSurfaceRenderComplete(surface: DiffSurfaceController | undefined) {
   return !!diff && Math.max(diff.additionLines.length, diff.deletionLines.length) > tokenizeMaxLength
 }
 
-function isPlainTextLanguage(language: string | undefined) {
-  return !language || ['text', 'txt', 'plain', 'plaintext'].includes(language.toLowerCase())
+function normalizeSurfaceLanguage(language: string | undefined) {
+  return !language || /^(?:text|txt|plain|plaintext)$/i.test(language)
+    ? 'text'
+    : language
 }
 
 function countLines(value: string) {

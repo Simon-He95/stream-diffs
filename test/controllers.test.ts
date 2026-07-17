@@ -406,6 +406,18 @@ describe('DiffSurfaceController', () => {
 })
 
 describe('markstream compatibility runtime', () => {
+  it.each(['plain', 'txt', 'plaintext'])('normalizes the %s alias to Pierre plain text', async (language) => {
+    let controller: any
+    const runtime = useMonaco({
+      stream: false,
+      onController: value => controller = value,
+    })
+
+    await runtime.createEditor(document.createElement('div'), 'plain content', language)
+
+    expect(controller.getInput().file.lang).toBe('text')
+  })
+
   it('keeps visual readiness pending until the native post-render commit', async () => {
     const runtime = useMonaco({ stream: false })
     await runtime.createEditor(document.createElement('div'), 'const answer = 42', 'typescript')

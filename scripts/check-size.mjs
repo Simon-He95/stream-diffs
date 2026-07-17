@@ -12,7 +12,7 @@ if (!core)
 
 const budgets = {
   'index.mjs': 210,
-  'markstream.mjs': 4_960,
+  'markstream.mjs': 4_980,
   'vue.mjs': 1_520,
   'pierre.mjs': 300,
   [core]: 5_700,
@@ -27,7 +27,7 @@ for (const [file, maximum] of Object.entries(budgets)) {
 }
 
 const total = Object.values(sizes).reduce((sum, size) => sum + size, 0)
-if (total > 12_540)
-  throw new Error(`Total first-party runtime is ${total} gzip bytes; budget is 12540`)
+if (total > 12_560)
+  throw new Error(`Total first-party runtime is ${total} gzip bytes; budget is 12560`)
 
 console.log(`runtime gzip: ${total} bytes`, sizes)
