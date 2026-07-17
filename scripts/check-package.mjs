@@ -17,7 +17,7 @@ if (/from\s+["']@pierre\/diffs["']/.test(rootEntry))
   throw new Error('The root entry must not eagerly import @pierre/diffs')
 
 const rootModule = await import(pathToFileURL(resolve(root, pkg.exports['.'].import)).href)
-for (const name of ['createCodeStream', 'createDiffSurface']) {
+for (const name of ['createCodeStream', 'createDiffSurface', 'useMonaco', 'detectLanguage', 'preloadMonacoWorkers']) {
   if (typeof rootModule[name] !== 'function')
     throw new Error(`Missing root runtime export: ${name}`)
 }

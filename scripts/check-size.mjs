@@ -11,7 +11,7 @@ if (!core)
   throw new Error('Missing shared stream controller runtime chunk')
 
 const budgets = {
-  'index.mjs': 200,
+  'index.mjs': 210,
   'markstream.mjs': 4_960,
   'vue.mjs': 1_520,
   'pierre.mjs': 300,
@@ -27,7 +27,7 @@ for (const [file, maximum] of Object.entries(budgets)) {
 }
 
 const total = Object.values(sizes).reduce((sum, size) => sum + size, 0)
-if (total > 12_520)
-  throw new Error(`Total first-party runtime is ${total} gzip bytes; budget is 12520`)
+if (total > 12_540)
+  throw new Error(`Total first-party runtime is ${total} gzip bytes; budget is 12540`)
 
 console.log(`runtime gzip: ${total} bytes`, sizes)
