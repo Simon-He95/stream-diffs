@@ -6,11 +6,12 @@
 
 | Output | Current approximate gzip | Gate |
 | --- | ---: | ---: |
-| root compatibility/API entry | 3.2 kB | 3.2 kB |
-| shared stream/surface controller | 5.3 kB | 5.3 kB |
-| Vue entry | 1.3 kB | 1.5 kB |
+| root API entry | 0.2 kB | 0.2 kB |
+| markstream compatibility entry | 4.9 kB | 5.0 kB |
+| shared stream/surface controller | 5.7 kB | 5.7 kB |
+| Vue entry | 1.5 kB | 1.5 kB |
 | synchronous Pierre utility entry | 0.2 kB | 0.3 kB |
-| all first-party runtime outputs | 9.9 kB | 10.0 kB |
+| all first-party runtime outputs | 12.5 kB | 12.5 kB |
 
 These numbers exclude `@pierre/diffs`, Shiki grammars, themes, and an optional worker because those are upstream/runtime-selected dependencies. The root entry contains no eager static import of `@pierre/diffs`; renderer code loads on the first `mount()`.
 

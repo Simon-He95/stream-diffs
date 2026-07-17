@@ -5,8 +5,6 @@ import { DiffStreamController } from './DiffStreamController'
 import { createDiffSurface, DiffSurfaceController } from './DiffSurfaceController'
 import { fileContents } from './internal'
 
-const VISUAL_NOT_READY = Promise.resolve(false)
-
 export interface StreamDiffsRuntimeOptions {
   MAX_HEIGHT?: number | string
   theme?: string | Record<string, unknown>
@@ -37,18 +35,25 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
   let original = ''
   let modified = ''
   let container: HTMLElement | undefined
+  let visualRevision = 0
+  let themeType: 'system' | 'light' | 'dark' = 'system'
+  let appliedTheme = resolveTheme(options)
+  let appliedThemePairKey = getThemePairKey(options)
 
-  const theme = resolveTheme(options)
   const shared = {
-    theme,
-    themeType: 'system' as const,
     disableLineNumbers: options.lineNumbers === false,
     overflow: options.wordWrap === 'on' ? 'wrap' as const : 'scroll' as const,
     enableLineSelection: options.enableLineSelection,
   }
+  const sharedOptions = () => ({
+    ...shared,
+    theme: appliedTheme,
+    themeType,
+  })
 
   async function createEditor(target: HTMLElement, code: string, lang: string) {
     cleanupEditor()
+    const revision = visualRevision
     applyEditorStyles(target, options)
     container = target
     language = lang
@@ -56,8 +61,8 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
       return createMergeConflictEditor(target, code, lang)
     if (options.stream === false)
       return createStaticFileEditor(target, code, lang)
-    stream = new CodeStreamController({
-      ...shared,
+    const createdStream = new CodeStreamController({
+      ...sharedOptions(),
       ...pickPierreOptions(options),
       fileName: `code.${lang || 'txt'}`,
       language: lang,
@@ -66,44 +71,57 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
       autoScrollThresholdPx: options.autoScrollThresholdPx,
       workerManager: options.workerManager,
     })
-    stream.append(code)
-    await stream.mount(target)
-    options.onController?.(stream)
+    stream = createdStream
+    createdStream.append(code)
+    await createdStream.mount(target)
+    if (revision !== visualRevision || stream !== createdStream || container !== target) {
+      createdStream.dispose()
+      throw new Error('Editor creation was cancelled')
+    }
+    options.onController?.(createdStream)
     editorAdapter = createEditorAdapter(
-      () => stream?.getText() ?? '',
+      () => createdStream.getText(),
       target,
-      () => stream?.getFinalizedSurface(),
-      listener => stream!.onDidRender(listener),
+      () => createdStream.getFinalizedSurface(),
+      listener => createdStream.onDidRender(listener),
     )
     return editorAdapter
   }
 
   async function createDiffEditor(target: HTMLElement, oldCode: string, newCode: string, lang: string) {
     cleanupEditor()
+    const revision = visualRevision
     applyEditorStyles(target, options)
     container = target
     language = lang
     original = oldCode
     modified = newCode
+    let createdSurface: DiffSurfaceController | undefined
+    let createdDiffStream: DiffStreamController | undefined
     if (options.stream === false) {
-      surface = createDiffSurface({
+      createdSurface = createDiffSurface({
         kind: 'diff',
         oldFile: asFile(oldCode),
         newFile: asFile(newCode),
         annotations: options.lineAnnotations as any,
         workerManager: options.workerManager,
         options: {
-          ...shared,
+          ...sharedOptions(),
           diffStyle: options.diffStyle ?? (options.renderSideBySide === false ? 'unified' : 'split'),
           ...pickPierreOptions(options),
         },
       })
-      await surface.mount(target)
-      options.onController?.(surface)
+      surface = createdSurface
+      await createdSurface.mount(target)
+      if (revision !== visualRevision || surface !== createdSurface || container !== target) {
+        createdSurface.dispose()
+        throw new Error('Editor creation was cancelled')
+      }
+      options.onController?.(createdSurface)
     }
     else {
-      diffStream = new DiffStreamController({
-        ...shared,
+      createdDiffStream = new DiffStreamController({
+        ...sharedOptions(),
         ...pickPierreOptions(options),
         fileName: `code.${lang || 'txt'}`,
         language: lang,
@@ -112,10 +130,20 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
         wrap: options.wordWrap === 'on',
         workerManager: options.workerManager,
       })
-      await diffStream.mount(target, oldCode, newCode)
-      options.onController?.(diffStream)
+      diffStream = createdDiffStream
+      await createdDiffStream.mount(target, oldCode, newCode)
+      if (revision !== visualRevision || diffStream !== createdDiffStream || container !== target) {
+        createdDiffStream.dispose()
+        throw new Error('Editor creation was cancelled')
+      }
+      options.onController?.(createdDiffStream)
     }
-    diffAdapter = createDiffAdapter(() => original, () => modified, target, () => surface ?? diffStream?.getFinalizedSurface())
+    diffAdapter = createDiffAdapter(
+      () => original,
+      () => modified,
+      target,
+      () => createdSurface ?? createdDiffStream?.getFinalizedSurface(),
+    )
     return diffAdapter
   }
 
@@ -181,6 +209,7 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
   }
 
   function cleanupEditor() {
+    visualRevision++
     stream?.dispose()
     diffStream?.dispose()
     if (!diffStream)
@@ -195,44 +224,56 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
 
   async function createStaticFileEditor(target: HTMLElement, code: string, lang: string) {
     cleanupEditor()
+    const revision = visualRevision
     container = target
     language = lang
-    surface = createDiffSurface({
+    const createdSurface = createDiffSurface({
       kind: 'file',
       file: asFile(code),
       annotations: options.lineAnnotations as any,
       workerManager: options.workerManager,
-      options: { ...shared, ...pickPierreOptions(options) },
+      options: { ...sharedOptions(), ...pickPierreOptions(options) },
     })
-    await surface.mount(target)
-    options.onController?.(surface)
+    surface = createdSurface
+    await createdSurface.mount(target)
+    if (revision !== visualRevision || surface !== createdSurface || container !== target) {
+      createdSurface.dispose()
+      throw new Error('Editor creation was cancelled')
+    }
+    options.onController?.(createdSurface)
     editorAdapter = createEditorAdapter(
-      () => getSurfaceFileContents(surface) ?? code,
+      () => getSurfaceFileContents(createdSurface) ?? code,
       target,
-      () => surface,
-      listener => surface!.onDidRender(listener),
+      () => createdSurface,
+      listener => createdSurface.onDidRender(listener),
     )
     return editorAdapter
   }
 
   async function createMergeConflictEditor(target: HTMLElement, code: string, lang: string) {
     cleanupEditor()
+    const revision = visualRevision
     container = target
     language = lang
-    surface = createDiffSurface({
+    const createdSurface = createDiffSurface({
       kind: 'merge-conflict',
       file: asFile(code),
       annotations: options.lineAnnotations as any,
       workerManager: options.workerManager,
-      options: { ...shared, ...pickPierreOptions(options) },
+      options: { ...sharedOptions(), ...pickPierreOptions(options) },
     })
-    await surface.mount(target)
-    options.onController?.(surface)
+    surface = createdSurface
+    await createdSurface.mount(target)
+    if (revision !== visualRevision || surface !== createdSurface || container !== target) {
+      createdSurface.dispose()
+      throw new Error('Editor creation was cancelled')
+    }
+    options.onController?.(createdSurface)
     editorAdapter = createEditorAdapter(
-      () => getSurfaceFileContents(surface) ?? code,
+      () => getSurfaceFileContents(createdSurface) ?? code,
       target,
-      () => surface,
-      listener => surface!.onDidRender(listener),
+      () => createdSurface,
+      listener => createdSurface.onDidRender(listener),
     )
     return editorAdapter
   }
@@ -249,21 +290,40 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
     if (typeof nextTheme === 'string') {
       const themes = options.themes
       if (themes?.[0] === nextTheme) {
+        await applyThemePairIfChanged()
+        themeType = 'dark'
         stream?.setThemeType('dark')
         diffStream?.setThemeType('dark')
         surface?.setThemeType('dark')
         return
       }
       if (themes?.[1] === nextTheme) {
+        await applyThemePairIfChanged()
+        themeType = 'light'
         stream?.setThemeType('light')
         diffStream?.setThemeType('light')
         surface?.setThemeType('light')
         return
       }
     }
-    await stream?.setTheme(nextTheme as any)
-    await diffStream?.setTheme(nextTheme as any)
-    await surface?.setTheme(nextTheme as any)
+    appliedThemePairKey = undefined
+    appliedTheme = nextTheme
+    await applyTheme(nextTheme)
+  }
+
+  async function applyThemePairIfChanged() {
+    const pairKey = getThemePairKey(options)
+    if (!pairKey || pairKey === appliedThemePairKey)
+      return
+    appliedThemePairKey = pairKey
+    appliedTheme = resolveTheme(options)
+    await applyTheme(appliedTheme)
+  }
+
+  async function applyTheme(nextTheme: any) {
+    await stream?.setTheme(nextTheme)
+    await diffStream?.setTheme(nextTheme)
+    await surface?.setTheme(nextTheme)
   }
 
   function asFile(contents: string): FileContents {
@@ -286,6 +346,8 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
       await stream.finalize({
         view: 'file',
         ...nativeOptions,
+        theme: appliedTheme,
+        themeType,
         annotations: options.lineAnnotations as any,
         workerManager: options.workerManager,
       })
@@ -312,10 +374,6 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
     },
     cleanupEditor,
     safeClean: cleanupEditor,
-    whenVisualReady: () => surface?.whenVisualReady()
-      ?? diffStream?.getFinalizedSurface()?.whenVisualReady()
-      ?? stream?.getFinalizedSurface()?.whenVisualReady()
-      ?? VISUAL_NOT_READY,
     setTheme,
     async setLanguage(next: string) {
       language = next
@@ -334,7 +392,7 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
         }
       }
     },
-    getCurrentTheme: () => options.theme,
+    getCurrentTheme: () => appliedTheme,
     getEditor: () => EDITOR_NAMESPACE,
     getEditorView: () => editorAdapter ?? null,
     getDiffEditorView: () => diffAdapter ?? null,
@@ -353,13 +411,136 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
       return stream?.getText() ?? null
     },
     refreshDiffPresentation: () => surface?.update(surface.getInput()),
+    whenVisualReady: async () => {
+      const target = container
+      const revision = visualRevision
+      const renderedSurface = surface ?? stream?.getFinalizedSurface() ?? diffStream?.getFinalizedSurface()
+      if (!renderedSurface || !await renderedSurface.whenVisualReady())
+        return false
+      return waitForVisualReady(
+        target,
+        () => revision === visualRevision
+          && target === container
+          && renderedSurface === (surface ?? stream?.getFinalizedSurface() ?? diffStream?.getFinalizedSurface()),
+        () => isSurfaceRenderComplete(surface ?? stream?.getFinalizedSurface() ?? diffStream?.getFinalizedSurface()),
+      )
+    },
   }
+}
+
+async function waitForVisualReady(
+  container: HTMLElement | undefined,
+  isCurrent: () => boolean,
+  isRenderComplete: () => boolean,
+) {
+  if (!container || typeof window === 'undefined')
+    return false
+
+  let previousSignature = ''
+  let previousPre: HTMLElement | undefined
+  let stableFrames = 0
+  for (let frame = 0; frame < 120; frame += 1) {
+    if (!isCurrent())
+      return false
+    const shell = container.querySelector<HTMLElement>('.stream-diffs-shell')
+    const diffs = shell?.querySelector<HTMLElement>('diffs-container')
+    const shadow = diffs?.shadowRoot
+    const pre = shadow?.querySelector<HTMLElement>('pre')
+    const rect = shell?.getBoundingClientRect()
+    const text = pre?.textContent ?? ''
+    const painted = !!rect && rect.width > 0 && rect.height > 0 && !!pre
+
+    if (painted && isRenderComplete()) {
+      const signature = `${Math.round(rect.width)}:${Math.round(rect.height)}:${pre.scrollWidth}:${pre.scrollHeight}:${text.length}`
+      stableFrames = pre === previousPre && signature === previousSignature ? stableFrames + 1 : 1
+      previousPre = pre
+      previousSignature = signature
+      if (stableFrames >= 2)
+        return true
+    }
+    else {
+      previousSignature = ''
+      previousPre = undefined
+      stableFrames = 0
+    }
+
+    await nextVisualFrame()
+  }
+  return false
+}
+
+function isSurfaceRenderComplete(surface: DiffSurfaceController | undefined) {
+  if (!surface)
+    return true
+
+  const instance = surface.getNativeInstance() as any
+  const renderer = instance?.fileRenderer ?? instance?.hunksRenderer
+  if (!renderer)
+    return true
+  const cache = renderer.renderCache
+  if (!cache?.result)
+    return false
+  if (cache.highlighted === true)
+    return true
+
+  const input = surface.getInput()
+  const language = input.kind === 'file' || input.kind === 'merge-conflict'
+    ? input.file.lang
+    : 'oldFile' in input
+      ? input.oldFile.lang ?? input.newFile.lang
+      : surface.getDiff()?.lang
+  if (isPlainTextLanguage(language))
+    return true
+
+  const tokenizeMaxLength = Number(renderer.getTokenizeMaxLength?.() ?? 100_000)
+  if (input.kind === 'file' || input.kind === 'merge-conflict')
+    return countLines(input.file.contents) > tokenizeMaxLength
+
+  const diff = surface.getDiff()
+  return !!diff && Math.max(diff.additionLines.length, diff.deletionLines.length) > tokenizeMaxLength
+}
+
+function isPlainTextLanguage(language: string | undefined) {
+  return !language || ['text', 'txt', 'plain', 'plaintext'].includes(language.toLowerCase())
+}
+
+function countLines(value: string) {
+  if (!value)
+    return 0
+  let lines = 1
+  for (let index = 0; index < value.length; index += 1) {
+    if (value.charCodeAt(index) === 10)
+      lines += 1
+  }
+  return lines
+}
+
+function nextVisualFrame() {
+  return new Promise<void>((resolve) => {
+    let settled = false
+    const done = () => {
+      if (settled)
+        return
+      settled = true
+      window.clearTimeout(timeout)
+      window.cancelAnimationFrame(frame)
+      resolve()
+    }
+    const frame = window.requestAnimationFrame(done)
+    const timeout = window.setTimeout(done, 50)
+  })
 }
 
 function resolveTheme(options: StreamDiffsRuntimeOptions) {
   if (options.themes?.length && typeof options.themes[0] === 'string' && typeof options.themes[1] === 'string')
     return { dark: options.themes[0], light: options.themes[1] }
-  return options.theme as any
+  return (options.theme ?? undefined) as any
+}
+
+function getThemePairKey(options: StreamDiffsRuntimeOptions) {
+  if (typeof options.themes?.[0] !== 'string' || typeof options.themes?.[1] !== 'string')
+    return undefined
+  return `${options.themes[0]}\n${options.themes[1]}`
 }
 
 function pickPierreOptions(options: StreamDiffsRuntimeOptions) {
@@ -369,7 +550,35 @@ function pickPierreOptions(options: StreamDiffsRuntimeOptions) {
     'stream', 'mergeConflict', 'lineAnnotations', 'onController',
     'workerManager', 'languages', 'onThemeChange',
   ])
-  return Object.fromEntries(Object.entries(options).filter(([key]) => !hostKeys.has(key)))
+  const nativeOptions = Object.fromEntries(Object.entries(options).filter(([key]) => !hostKeys.has(key)))
+  const legacyFolding = options.diffHideUnchangedRegions
+  delete nativeOptions.diffHideUnchangedRegions
+
+  const foldingOptions = typeof legacyFolding === 'object' && legacyFolding
+    ? legacyFolding as Record<string, unknown>
+    : undefined
+  const foldingEnabled = foldingOptions?.enabled !== false
+
+  if (legacyFolding === false || (foldingOptions && !foldingEnabled)) {
+    nativeOptions.expandUnchanged ??= true
+  }
+  else if (legacyFolding === true || foldingOptions) {
+    nativeOptions.expandUnchanged ??= false
+    if (foldingOptions) {
+      const context = Number(foldingOptions.contextLineCount)
+      if (Number.isFinite(context) && context >= 0) {
+        nativeOptions.parseDiffOptions = {
+          context,
+          ...(nativeOptions.parseDiffOptions as Record<string, unknown> | undefined),
+        }
+      }
+      const minimumLineCount = Number(foldingOptions.minimumLineCount)
+      if (Number.isFinite(minimumLineCount) && minimumLineCount >= 1)
+        nativeOptions.collapsedContextThreshold ??= Math.max(0, Math.floor(minimumLineCount) - 1)
+    }
+  }
+
+  return nativeOptions
 }
 
 function createModel(getValue: () => string) {

@@ -113,6 +113,10 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
   }
 
   setThemeType(themeType: 'system' | 'light' | 'dark') {
+    if (this.input.options)
+      this.input.options = { ...this.input.options, themeType }
+    else
+      this.input.options = { themeType } as any
     this.instance?.setThemeType(themeType)
   }
 
@@ -223,7 +227,6 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
       this.instance = instance
       instance.setSelectedLines(this.selectedLines)
       this.diff = undefined
-      this.emitRender()
       return
     }
     if (isDiffInput(this.input)) {
@@ -253,7 +256,6 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
       instance.render({ fileDiff: this.diff, containerWrapper: surface, lineAnnotations: this.input.annotations })
       this.instance = instance
       instance.setSelectedLines(this.selectedLines)
-      this.emitRender()
       return
     }
     const instance = new mod.UnresolvedFile<LAnnotation>(withInternalPostRender(this.input.options, () => this.markVisualReady(visualRevision)), this.input.workerManager)
@@ -261,7 +263,6 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
     this.instance = instance
     instance.setSelectedLines(this.selectedLines)
     this.diff = instance.fileDiff
-    this.emitRender()
   }
 
   private emitRender() {
