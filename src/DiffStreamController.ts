@@ -109,6 +109,7 @@ export class DiffStreamController<LAnnotation = unknown> {
   }
 
   setThemeType(type: 'system' | 'light' | 'dark') {
+    this.options.themeType = type
     this.finalizedSurface?.setThemeType(type)
   }
 

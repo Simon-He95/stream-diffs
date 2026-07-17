@@ -172,7 +172,11 @@ export class CodeStreamController {
         kind: 'file',
         file: current,
         annotations,
-        options: fileOptions,
+        options: {
+          theme: this.options.theme,
+          themeType: this.options.themeType,
+          ...fileOptions,
+        },
         workerManager: workerManager ?? this.options.workerManager,
       })
     }
@@ -189,7 +193,11 @@ export class CodeStreamController {
         oldFile: fileContents(name, original, this.options.language),
         newFile: current,
         annotations,
-        options: diffOptions,
+        options: {
+          theme: this.options.theme,
+          themeType: this.options.themeType,
+          ...diffOptions,
+        },
         workerManager: workerManager ?? this.options.workerManager,
       })
     }
@@ -247,6 +255,7 @@ export class CodeStreamController {
   }
 
   setThemeType(type: 'system' | 'dark' | 'light') {
+    this.options.themeType = type
     this.finalizedSurface?.setThemeType(type)
   }
 

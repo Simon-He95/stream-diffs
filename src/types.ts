@@ -177,5 +177,6 @@ export interface DiffSurfaceController<LAnnotation = unknown> {
   getInput(): DiffSurfaceInput<LAnnotation>
   getNativeInstance(): File<LAnnotation> | FileDiff<LAnnotation> | UnresolvedFile<LAnnotation> | undefined
   onDidRender(listener: () => void): { dispose(): void }
+  whenVisualReady(): Promise<boolean>
   dispose(): void
 }

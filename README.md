@@ -141,9 +141,26 @@ Advanced Diffs options pass through `code-block-props.monacoOptions`. The proper
 />
 ```
 
-When loading ends, markstream calls `finalizeCode()` and atomically switches the stream to an interactive `File`. Complete Git conflict markers use the merge conflict resolution UI. If both optional renderers are installed, `stream-diffs` wins; remove it to select `stream-monaco` explicitly.
+While loading, markstream keeps its own `<pre>` and does not create a Diffs controller. After the block is complete and visible, it creates one static File or FileDiff with `stream: false`, waits for the first stable visual frame, and atomically replaces the fallback. Complete Git conflict markers use the merge conflict resolution UI. If both optional renderers are installed, `stream-diffs` wins; remove it to select `stream-monaco` explicitly.
 
 The first cold mount still initializes the shared Shiki highlighter asynchronously, so markstream keeps its `<pre>` fallback until the Diffs surface is ready. No Monaco worker or model is created. On the measured Chrome benchmark, the median cold fallback was 72.4 ms for stream-diffs versus 913.0 ms for stream-monaco; 1-, 12-, and 24-thread runs had no measured container-height decrease. See [Performance and package size](./docs/performance.md#browser-streaming-benchmark) for methodology and reproducible commands.
+
+## Framework adapters
+
+The root `stream-diffs` entry is an imperative DOM runtime and imports no framework. React, Svelte, Angular, Vue, and vanilla applications use the same controllers. The optional `stream-diffs/vue` entry only provides Vue component wrappers.
+
+For streamed Markdown, the framework adapter owns completion and visibility. Keep the framework's `<pre>` mounted while the block is incomplete or outside the viewport, then mount one final snapshot when both conditions are true:
+
+```ts
+if (codeBlockComplete && codeBlockVisible) {
+  const runtime = useMonaco({ stream: false, disableFileHeader: true })
+  await runtime.createEditor(stagingElement, finalCode, language)
+  if (await runtime.whenVisualReady?.())
+    fallbackElement.replaceWith(stagingElement)
+}
+```
+
+Build the highlighted surface in a staging element and replace the fallback only after creation and visual readiness resolve. This keeps React effects, Svelte actions, Angular hooks, and Vue lifecycle code outside the runtime while preserving a single pre-to-highlight transition. Dispose the runtime when the host component unmounts, collapses, or changes code-block identity.
 
 ## Interactive review APIs
 

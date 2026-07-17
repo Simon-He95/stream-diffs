@@ -1,6 +1,5 @@
 export { CodeStreamController, createCodeStream } from './CodeStreamController'
 export { DiffStreamController, createDiffStream } from './DiffStreamController'
 export { createDiffSurface, DiffSurfaceController } from './DiffSurfaceController'
-export { detectLanguage, preloadMonacoWorkers, preloadStreamDiffs, useMonaco } from './markstream'
-export type { StreamDiffsRuntimeOptions } from './markstream'
+export { detectLanguage, preloadMonacoWorkers, useMonaco } from './markstream'
 export type * from './types'

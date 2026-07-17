@@ -16,6 +16,10 @@
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs"
     },
+    "./markstream": {
+      "types": "./dist/markstream.d.mts",
+      "import": "./dist/markstream.mjs"
+    },
     "./vue": {
       "types": "./dist/vue.d.mts",
       "import": "./dist/vue.mjs"

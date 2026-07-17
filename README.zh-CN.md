@@ -129,11 +129,11 @@ const codeBlockProps = {
 }
 ```
 
-流结束后 markstream 会调用 `finalizeCode()`，原子切换为可交互 `File`，完整冲突标记会进入冲突解决 UI。两种可选渲染器同时安装时优先 `stream-diffs`；移除它即可显式使用 `stream-monaco`。
+流式阶段 markstream 保留自己的 `<pre>`。代码块完整且进入可视区域后，它只创建一次最终的静态 `File` 或 `FileDiff`，等待最新渲染稳定后再原子切换；完整冲突标记会进入冲突解决 UI。两种可选渲染器同时安装时优先 `stream-diffs`；移除它即可显式使用 `stream-monaco`。
 
 首次冷启动仍需异步初始化共享的 Shiki highlighter，因此 markstream 会保留 `<pre>`，直到 Diffs surface ready；它不创建 Monaco worker 或 model。实测 Chrome 中冷启动 fallback 中位数为 72.4 ms，stream-monaco 为 913.0 ms；1、12、24 threads 压测均未检测到容器高度回落。方法和复现命令见[性能与包体积](./docs/performance.md#browser-streaming-benchmark)。
 
-兼容运行时已经提供 `finalizeCode()`，供后续加载器在 `loading` 变为 `false` 时完成 `FileStream → File` 原子切换。切换后原 editor adapter 上的选行、注释等方法仍然指向最终 File。
+兼容运行时提供 `whenVisualReady()`。只有它返回 `true` 时适配层才移除 `<pre>`；返回 `false` 表示创建已过期或被取消，必须继续保留 fallback。
 
 ## 交互能力
 

@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   parseDiffCalls: [] as any[][],
   streamed: [] as string[],
   setupGate: undefined as Promise<void> | undefined,
+  postRenderCallbacks: [] as Array<() => void>,
 }))
 
 vi.mock('@pierre/diffs', () => {
@@ -14,6 +15,7 @@ vi.mock('@pierre/diffs', () => {
     annotations: any[] = []
     fileDiff: any
     workerManager: any
+    fileRenderer = { renderCache: { result: {}, highlighted: true } }
     cleaned = 0
     constructor(options: any, workerManager?: any) {
       this.options = options
@@ -34,8 +36,14 @@ vi.mock('@pierre/diffs', () => {
   }
   class File extends Base {
     render(props: any) {
-      props.containerWrapper.appendChild(document.createElement('diffs-container'))
+      const node = document.createElement('diffs-container')
+      const shadow = node.attachShadow({ mode: 'open' })
+      shadow.innerHTML = '<pre>rendered code</pre>'
+      props.containerWrapper.appendChild(node)
+      const shell = props.containerWrapper.parentElement!
+      shell.getBoundingClientRect = () => ({ width: 600, height: 120 }) as DOMRect
       this.annotations = props.lineAnnotations ?? []
+      mocks.postRenderCallbacks.push(() => this.options.onPostRender?.(node, this, 'mount'))
       return true
     }
   }
@@ -45,6 +53,7 @@ vi.mock('@pierre/diffs', () => {
       if (!props.containerWrapper.querySelector('diffs-container'))
         props.containerWrapper.appendChild(document.createElement('diffs-container'))
       this.annotations = props.lineAnnotations ?? []
+      this.options.onPostRender?.(props.containerWrapper.querySelector('diffs-container'), this, 'update')
       return true
     }
   }
@@ -96,6 +105,7 @@ beforeEach(() => {
   mocks.parseDiffCalls.length = 0
   mocks.streamed.length = 0
   mocks.setupGate = undefined
+  mocks.postRenderCallbacks.length = 0
   document.body.replaceChildren()
 })
 
@@ -122,6 +132,21 @@ describe('CodeStreamController', () => {
     expect(controller.getState()).toBe('finalized')
     expect(states).toEqual(expect.arrayContaining(['mounting', 'streaming', 'finalizing', 'finalized']))
     expect(target.querySelector('diffs-container')).not.toBeNull()
+  })
+
+  it('keeps the active theme when finalizing a direct code stream', async () => {
+    const controller = createCodeStream({ language: 'typescript', theme: 'initial', themeType: 'light' })
+    controller.append('const answer = 42')
+    await controller.mount(document.createElement('div'))
+    await controller.setTheme('updated')
+    controller.setThemeType('dark')
+
+    await controller.finalize({ view: 'file' })
+
+    expect((mocks.instances.at(-1) as any).options).toMatchObject({
+      theme: 'updated',
+      themeType: 'dark',
+    })
   })
 
   it('resets a non-prefix snapshot', async () => {
@@ -381,6 +406,61 @@ describe('DiffSurfaceController', () => {
 })
 
 describe('markstream compatibility runtime', () => {
+  it.each(['plain', 'txt', 'plaintext'])('normalizes the %s alias to Pierre plain text', async (language) => {
+    let controller: any
+    const runtime = useMonaco({
+      stream: false,
+      onController: value => controller = value,
+    })
+
+    await runtime.createEditor(document.createElement('div'), 'plain content', language)
+
+    expect(controller.getInput().file.lang).toBe('text')
+  })
+
+  it('keeps visual readiness pending until the native post-render commit', async () => {
+    const runtime = useMonaco({ stream: false })
+    await runtime.createEditor(document.createElement('div'), 'const answer = 42', 'typescript')
+
+    let settled = false
+    const ready = runtime.whenVisualReady().then((value) => {
+      settled = true
+      return value
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    mocks.postRenderCallbacks.shift()?.()
+    await expect(ready).resolves.toBe(true)
+  })
+
+  it('keeps the compatibility readiness promise on the latest visual revision', async () => {
+    const runtime = useMonaco({ stream: false })
+    await runtime.createEditor(document.createElement('div'), 'const answer = 1', 'typescript')
+    const ready = runtime.whenVisualReady()
+
+    await runtime.updateCode('const answer = 2', 'typescript')
+    mocks.postRenderCallbacks.shift()?.()
+    await Promise.resolve()
+    let settled = false
+    void ready.then(() => settled = true)
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    mocks.postRenderCallbacks.shift()?.()
+    await expect(ready).resolves.toBe(true)
+  })
+
+  it('invalidates pending visual readiness when the runtime is cleaned up', async () => {
+    const runtime = useMonaco({ stream: false })
+    await runtime.createEditor(document.createElement('div'), 'const answer = 42', 'typescript')
+    const ready = runtime.whenVisualReady()
+
+    runtime.cleanupEditor()
+
+    await expect(ready).resolves.toBe(false)
+  })
+
   it('keeps file and diff getCode shapes compatible and cleans up the host', async () => {
     const controllers: any[] = []
     const runtime = useMonaco({ stream: false, onController: controller => controllers.push(controller) })
@@ -400,6 +480,20 @@ describe('markstream compatibility runtime', () => {
     runtime.cleanupEditor()
     expect(target.childElementCount).toBe(0)
     await runtime.updateCode('must not remount', 'typescript')
+    expect(target.childElementCount).toBe(0)
+  })
+
+  it('does not publish a static editor after cleanup cancels its creation', async () => {
+    const onController = vi.fn()
+    const runtime = useMonaco({ stream: false, onController })
+    const target = document.createElement('div')
+
+    const creation = runtime.createEditor(target, 'const answer = 42', 'typescript')
+    runtime.cleanupEditor()
+
+    await expect(creation).rejects.toThrow('Editor creation was cancelled')
+    expect(runtime.getEditorView()).toBeNull()
+    expect(onController).not.toHaveBeenCalled()
     expect(target.childElementCount).toBe(0)
   })
 
@@ -469,6 +563,54 @@ describe('markstream compatibility runtime', () => {
     })
   })
 
+  it('maps legacy unchanged-region context to Pierre diff parsing', async () => {
+    const runtime = useMonaco({
+      stream: false,
+      diffHideUnchangedRegions: { enabled: true, contextLineCount: 2 },
+    })
+
+    await runtime.createDiffEditor(document.createElement('div'), 'old', 'new', 'text')
+
+    expect((mocks.instances.at(-1) as any).options).toMatchObject({
+      expandUnchanged: false,
+      parseDiffOptions: { context: 2 },
+    })
+  })
+
+  it('keeps unchanged regions expanded when legacy folding is disabled by object', async () => {
+    const runtime = useMonaco({
+      stream: false,
+      diffHideUnchangedRegions: { enabled: false, contextLineCount: 2 },
+    })
+
+    await runtime.createDiffEditor(document.createElement('div'), 'old', 'new', 'text')
+
+    expect((mocks.instances.at(-1) as any).options.expandUnchanged).toBe(true)
+  })
+
+  it('maps the legacy minimum collapsed line count to Pierre', async () => {
+    const runtime = useMonaco({
+      stream: false,
+      diffHideUnchangedRegions: { enabled: true, minimumLineCount: 4 },
+    })
+
+    await runtime.createDiffEditor(document.createElement('div'), 'old', 'new', 'text')
+
+    expect((mocks.instances.at(-1) as any).options.collapsedContextThreshold).toBe(3)
+  })
+
+  it('keeps explicit Pierre parsing options over legacy folding values', async () => {
+    const runtime = useMonaco({
+      stream: false,
+      diffHideUnchangedRegions: { enabled: true, contextLineCount: 2 },
+      parseDiffOptions: { context: 6 },
+    })
+
+    await runtime.createDiffEditor(document.createElement('div'), 'old', 'new', 'text')
+
+    expect((mocks.instances.at(-1) as any).options.parseDiffOptions).toEqual({ context: 6 })
+  })
+
   it('bridges Diffs render completion to editor content-size events', async () => {
     const runtime = useMonaco({ stream: false })
     await runtime.createDiffEditor(document.createElement('div'), 'old', 'new', 'text')
@@ -482,6 +624,69 @@ describe('markstream compatibility runtime', () => {
     disposable?.dispose()
     await runtime.updateDiff('older', 'newer', 'text')
     expect(onUpdate).toHaveBeenCalledTimes(calls)
+  })
+
+  it('keeps the selected paired theme after a surface update', async () => {
+    const options = { stream: false, themes: ['dark-a', 'light-a'] }
+    const runtime = useMonaco(options)
+    const target = document.createElement('div')
+    await runtime.createDiffEditor(target, 'old', 'new', 'text')
+
+    await runtime.setTheme('dark-a')
+    await runtime.updateDiff('older', 'newer', 'text')
+
+    expect((mocks.instances.at(-1) as any).options).toMatchObject({
+      theme: { dark: 'dark-a', light: 'light-a' },
+      themeType: 'dark',
+    })
+  })
+
+  it('installs a replaced paired theme before selecting its mode', async () => {
+    const options = { stream: false, themes: ['dark-a', 'light-a'] }
+    const runtime = useMonaco(options)
+    await runtime.createEditor(document.createElement('div'), 'const value = 1', 'typescript')
+
+    options.themes = ['dark-b', 'light-b']
+    await runtime.setTheme('light-b')
+    await runtime.updateCode('const value = 2', 'typescript')
+
+    expect((mocks.instances.at(-1) as any).options).toMatchObject({
+      theme: { dark: 'dark-b', light: 'light-b' },
+      themeType: 'light',
+    })
+  })
+
+  it('accepts a stable untokenized surface as visually ready', async () => {
+    const requestAnimationFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      queueMicrotask(() => callback(performance.now()))
+      return 1
+    })
+    const cancelAnimationFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+    const runtime = useMonaco({ stream: false, tokenizeMaxLength: 1 })
+    const target = document.createElement('div')
+    await runtime.createEditor(target, 'const value = 1', 'typescript')
+    const shell = target.querySelector<HTMLElement>('.stream-diffs-shell')!
+    shell.getBoundingClientRect = () => ({ width: 600, height: 120 }) as DOMRect
+    const diffs = target.querySelector<HTMLElement>('diffs-container')!
+    const shadow = diffs.shadowRoot ?? diffs.attachShadow({ mode: 'open' })
+    shadow.innerHTML = '<pre>const value = 1</pre>'
+    mocks.postRenderCallbacks.shift()?.()
+
+    await expect(runtime.whenVisualReady()).resolves.toBe(true)
+
+    requestAnimationFrame.mockRestore()
+    cancelAnimationFrame.mockRestore()
+  })
+
+  it('cancels visual readiness when the runtime is cleaned up', async () => {
+    const runtime = useMonaco({ stream: false })
+    const target = document.createElement('div')
+    await runtime.createEditor(target, 'const value = 1', 'typescript')
+
+    const ready = runtime.whenVisualReady()
+    runtime.cleanupEditor()
+
+    await expect(ready).resolves.toBe(false)
   })
 
   it('reports final stream renders and exposes font metrics to markstream', async () => {
