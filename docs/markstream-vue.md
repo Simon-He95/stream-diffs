@@ -2,13 +2,13 @@
 
 ## Integration status
 
-`stream-diffs/markstream` exports `useMonaco`, `detectLanguage`, and `preloadMonacoWorkers`, and markstream adapters dynamically select it without importing Monaco.
+The root `stream-diffs` entry and `stream-diffs/markstream` both export `useMonaco`, `detectLanguage`, and `preloadMonacoWorkers`. Existing markstream adapters can keep selecting the root entry without importing Monaco.
 
 ## Resolution order
 
 The CodeBlock loader attempts:
 
-1. `import('stream-diffs/markstream')`
+1. `import('stream-diffs')`
 2. `import('stream-monaco')`
 3. the built-in basic `<pre>` fallback
 
