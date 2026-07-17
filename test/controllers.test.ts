@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   parseDiffCalls: [] as any[][],
   streamed: [] as string[],
   setupGate: undefined as Promise<void> | undefined,
+  postRenderCallbacks: [] as Array<() => void>,
 }))
 
 vi.mock('@pierre/diffs', () => {
@@ -36,6 +37,7 @@ vi.mock('@pierre/diffs', () => {
     render(props: any) {
       props.containerWrapper.appendChild(document.createElement('diffs-container'))
       this.annotations = props.lineAnnotations ?? []
+      mocks.postRenderCallbacks.push(() => this.options.onPostRender?.())
       return true
     }
   }
@@ -96,6 +98,7 @@ beforeEach(() => {
   mocks.parseDiffCalls.length = 0
   mocks.streamed.length = 0
   mocks.setupGate = undefined
+  mocks.postRenderCallbacks.length = 0
   document.body.replaceChildren()
 })
 
@@ -381,6 +384,49 @@ describe('DiffSurfaceController', () => {
 })
 
 describe('markstream compatibility runtime', () => {
+  it('keeps visual readiness pending until the native post-render commit', async () => {
+    const runtime = useMonaco({ stream: false })
+    await runtime.createEditor(document.createElement('div'), 'const answer = 42', 'typescript')
+
+    let settled = false
+    const ready = runtime.whenVisualReady().then((value) => {
+      settled = true
+      return value
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    mocks.postRenderCallbacks.shift()?.()
+    await expect(ready).resolves.toBe(true)
+  })
+
+  it('keeps the compatibility readiness promise on the latest visual revision', async () => {
+    const runtime = useMonaco({ stream: false })
+    await runtime.createEditor(document.createElement('div'), 'const answer = 1', 'typescript')
+    const ready = runtime.whenVisualReady()
+
+    await runtime.updateCode('const answer = 2', 'typescript')
+    mocks.postRenderCallbacks.shift()?.()
+    await Promise.resolve()
+    let settled = false
+    void ready.then(() => settled = true)
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    mocks.postRenderCallbacks.shift()?.()
+    await expect(ready).resolves.toBe(true)
+  })
+
+  it('invalidates pending visual readiness when the runtime is cleaned up', async () => {
+    const runtime = useMonaco({ stream: false })
+    await runtime.createEditor(document.createElement('div'), 'const answer = 42', 'typescript')
+    const ready = runtime.whenVisualReady()
+
+    runtime.cleanupEditor()
+
+    await expect(ready).resolves.toBe(false)
+  })
+
   it('keeps file and diff getCode shapes compatible and cleans up the host', async () => {
     const controllers: any[] = []
     const runtime = useMonaco({ stream: false, onController: controller => controllers.push(controller) })

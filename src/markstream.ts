@@ -5,6 +5,8 @@ import { DiffStreamController } from './DiffStreamController'
 import { createDiffSurface, DiffSurfaceController } from './DiffSurfaceController'
 import { fileContents } from './internal'
 
+const VISUAL_NOT_READY = Promise.resolve(false)
+
 export interface StreamDiffsRuntimeOptions {
   MAX_HEIGHT?: number | string
   theme?: string | Record<string, unknown>
@@ -310,6 +312,10 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
     },
     cleanupEditor,
     safeClean: cleanupEditor,
+    whenVisualReady: () => surface?.whenVisualReady()
+      ?? diffStream?.getFinalizedSurface()?.whenVisualReady()
+      ?? stream?.getFinalizedSurface()?.whenVisualReady()
+      ?? VISUAL_NOT_READY,
     setTheme,
     async setLanguage(next: string) {
       language = next

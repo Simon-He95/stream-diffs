@@ -21,6 +21,9 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
   private selectedLines: SelectedLineRange | null = null
   private disposed = false
   private renderListeners = new Set<() => void>()
+  private visualRevision = 0
+  private visualReadyPromise: Promise<boolean> = Promise.resolve(false)
+  private resolveVisualReady?: (ready: boolean) => void
 
   constructor(private input: DiffSurfaceInput<LAnnotation>) {}
 
@@ -180,8 +183,19 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
     return { dispose: () => this.renderListeners.delete(listener) }
   }
 
+  async whenVisualReady() {
+    let pending = this.visualReadyPromise
+    for (;;) {
+      const ready = await pending
+      if (pending === this.visualReadyPromise)
+        return ready
+      pending = this.visualReadyPromise
+    }
+  }
+
   dispose() {
     this.disposed = true
+    this.invalidateVisualReady()
     this.instance?.cleanUp()
     this.instance = undefined
     this.surface = undefined
@@ -196,6 +210,7 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
     const surface = this.surface
     if (!surface || this.disposed)
       return
+    const visualRevision = this.beginVisualRender()
     const mod = this.module ??= await import('@pierre/diffs')
     if (this.disposed || surface !== this.surface)
       return
@@ -203,7 +218,7 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
     this.instance?.cleanUp()
     surface.replaceChildren()
     if (this.input.kind === 'file') {
-      const instance = new mod.File<LAnnotation>(withInternalPostRender(this.input.options, () => this.emitRender()), this.input.workerManager)
+      const instance = new mod.File<LAnnotation>(withInternalPostRender(this.input.options, () => this.markVisualReady(visualRevision)), this.input.workerManager)
       instance.render({ file: this.input.file, containerWrapper: surface, lineAnnotations: this.input.annotations })
       this.instance = instance
       instance.setSelectedLines(this.selectedLines)
@@ -234,14 +249,14 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
           )
         }
       }
-      const instance = new mod.FileDiff<LAnnotation>(withInternalPostRender(this.input.options, () => this.emitRender()), this.input.workerManager)
+      const instance = new mod.FileDiff<LAnnotation>(withInternalPostRender(this.input.options, () => this.markVisualReady(visualRevision)), this.input.workerManager)
       instance.render({ fileDiff: this.diff, containerWrapper: surface, lineAnnotations: this.input.annotations })
       this.instance = instance
       instance.setSelectedLines(this.selectedLines)
       this.emitRender()
       return
     }
-    const instance = new mod.UnresolvedFile<LAnnotation>(withInternalPostRender(this.input.options, () => this.emitRender()), this.input.workerManager)
+    const instance = new mod.UnresolvedFile<LAnnotation>(withInternalPostRender(this.input.options, () => this.markVisualReady(visualRevision)), this.input.workerManager)
     instance.render({ file: this.input.file, containerWrapper: surface, lineAnnotations: this.input.annotations })
     this.instance = instance
     instance.setSelectedLines(this.selectedLines)
@@ -252,6 +267,29 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
   private emitRender() {
     for (const listener of this.renderListeners)
       listener()
+  }
+
+  private beginVisualRender() {
+    this.resolveVisualReady?.(false)
+    const revision = ++this.visualRevision
+    this.visualReadyPromise = new Promise<boolean>((resolve) => {
+      this.resolveVisualReady = resolve
+    })
+    return revision
+  }
+
+  private markVisualReady(revision: number) {
+    if (this.disposed || revision !== this.visualRevision)
+      return
+    this.resolveVisualReady?.(true)
+    this.resolveVisualReady = undefined
+    this.emitRender()
+  }
+
+  private invalidateVisualReady() {
+    this.visualRevision++
+    this.resolveVisualReady?.(false)
+    this.resolveVisualReady = undefined
   }
 }
 

@@ -93,6 +93,7 @@ Every File, Diff, Patch, and Merge input accepts `workerManager?: WorkerPoolMana
 - `getInput()` returns current input data.
 - `getNativeInstance()` exposes the mounted `File`, `FileDiff`, or `UnresolvedFile` for upstream APIs not wrapped by the controller.
 - `onDidRender(listener)` observes initial and subsequent native render completion, including asynchronous highlighting updates. It returns a disposable subscription.
+- `whenVisualReady()` waits for the latest native post-render commit, including a render that supersedes the one originally awaited. It resolves `true` after that commit and `false` if the surface is disposed before it becomes ready or no visual render exists.
 
 ## Native Diffs exports
 
@@ -108,4 +109,4 @@ Import `StreamCode`, `StreamDiff`, and `StreamMergeConflict` from `stream-diffs/
 
 ## markstream compatibility entry
 
-The root package exports `useMonaco`, `detectLanguage`, and `preloadMonacoWorkers` so current `markstream-vue` CodeBlock runtime loading can consume `stream-diffs` without changing its existing component contract. The returned helpers also include `finalizeCode()`, which converts the active `FileStream` into an interactive `File` when host loading finishes. Adapter content-size/layout events are backed by native Diffs render completion so Shadow DOM highlighting can trigger host height reconciliation. These names are compatibility APIs; they do not load Monaco.
+The root package exports `useMonaco`, `detectLanguage`, and `preloadMonacoWorkers` so current `markstream-vue` CodeBlock runtime loading can consume `stream-diffs` without changing its existing component contract. The returned helpers also include `finalizeCode()`, which converts the active `FileStream` into an interactive `File` when host loading finishes, and `whenVisualReady()`, which exposes the same latest-render readiness contract as the final surface. Adapter content-size/layout events are backed by native Diffs render completion so Shadow DOM highlighting can trigger host height reconciliation. These names are compatibility APIs; they do not load Monaco.
