@@ -181,20 +181,6 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
         this.releaseThemeHeightHold(visualRevision)
         return
       }
-      let measurable = await waitForMeasurableLayout(staging, isCurrent)
-      while (!measurable && isCurrent()) {
-        // The off-screen staging cannot be measured while the surface is
-        // hidden (route switch, minimized window); retry in batches instead
-        // of failing and permanently keeping the old theme. dispose()/a newer
-        // revision cancel via isCurrent().
-        measurable = await waitForMeasurableLayout(staging, isCurrent)
-      }
-      if (!isCurrent()) {
-        instance.cleanUp()
-        staging.remove()
-        this.releaseThemeHeightHold(visualRevision)
-        return
-      }
       const previousInstance = this.instance
       surface.replaceChildren(...Array.from(staging.childNodes))
       staging.remove()
@@ -492,35 +478,14 @@ function waitForVisualFrame(): Promise<void> {
   })
 }
 
-async function waitForMeasurableLayout(surface: HTMLElement, isCurrent: () => boolean): Promise<boolean> {
-  let previousHeight = 0
-  let stableFrames = 0
-  for (let frame = 0; frame < 120; frame += 1) {
-    if (!isCurrent())
-      return false
-    const pre = surface.querySelector('diffs-container')?.shadowRoot?.querySelector('pre')
-    const height = Math.ceil(surface.getBoundingClientRect().height || 0)
-    if (pre && height > 0) {
-      stableFrames = height === previousHeight ? stableFrames + 1 : 1
-      previousHeight = height
-      if (stableFrames >= 2)
-        return true
-    }
-    else {
-      previousHeight = 0
-      stableFrames = 0
-    }
-    await waitForVisualFrame()
-  }
-  return false
-}
-
 function createThemeStagingSurface(surface: HTMLElement, width: number): HTMLElement {
   const staging = surface.cloneNode(false) as HTMLElement
+  // Double-buffer: `visibility: hidden` keeps the node layoutable (measurable)
+  // while never painted, hit-tested, or focused — it can sit at the viewport
+  // origin with zero page impact. No off-screen translation is needed.
   staging.style.position = 'fixed'
   staging.style.visibility = 'hidden'
-  staging.style.pointerEvents = 'none'
-  staging.style.left = '-100000px'
+  staging.style.left = '0'
   staging.style.top = '0'
   staging.style.width = `${Math.max(1, Math.ceil(width))}px`
   staging.style.minHeight = ''
