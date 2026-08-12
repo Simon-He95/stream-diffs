@@ -24,8 +24,12 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
   private visualRevision = 0
   private visualReadyPromise: Promise<boolean> = Promise.resolve(false)
   private resolveVisualReady?: (ready: boolean) => void
+  private themeHeightHold?: { surface: HTMLElement; visualRevision: number; previousMinHeight: string }
+  private renderedInput: DiffSurfaceInput<LAnnotation>
 
-  constructor(private input: DiffSurfaceInput<LAnnotation>) {}
+  constructor(private input: DiffSurfaceInput<LAnnotation>) {
+    this.renderedInput = input
+  }
 
   async mount(container: HTMLElement) {
     this.disposed = false
@@ -121,12 +125,109 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
   }
 
   async setTheme(theme: any) {
-    if (this.input.options)
-      this.input.options = { ...this.input.options, theme }
-    else
-      this.input.options = { theme } as any
-    if (this.surface)
-      await this.render(false)
+    const input: DiffSurfaceInput<LAnnotation> = {
+      ...this.input,
+      options: {
+        ...this.input.options,
+        theme,
+      },
+    } as DiffSurfaceInput<LAnnotation>
+    const surface = this.surface
+    if (!surface || this.disposed) {
+      this.input = input
+      return
+    }
+
+    const visualRevision = this.beginVisualRender()
+    this.input = input
+    const visualReady = this.visualReadyPromise
+    const previousHold = this.themeHeightHold
+    const previousMinHeight = previousHold?.surface === surface
+      ? previousHold.previousMinHeight
+      : surface.style.minHeight
+    const currentRect = surface.getBoundingClientRect()
+    const currentHeight = Math.ceil(currentRect.height || Number.parseFloat(surface.style.minHeight) || 0)
+    this.releaseThemeHeightHold()
+    if (currentHeight > 0) {
+      surface.style.minHeight = `${currentHeight}px`
+      this.themeHeightHold = { surface, visualRevision, previousMinHeight }
+    }
+
+    const isCurrent = () =>
+      !this.disposed && surface === this.surface && visualRevision === this.visualRevision
+    let staging: HTMLElement | undefined
+    let instance: PierreInstance<LAnnotation> | undefined
+    try {
+      const mod = this.module ??= await import('@pierre/diffs')
+      // Pre-register the target theme on the shared highlighter before
+      // rendering: the pristine flow renders the new theme with a highlighter
+      // that only knows the previous theme, so the switch silently stays on
+      // the old theme (and the rebuilt surface causes a redraw flash).
+      await mod.resolveThemes(mod.getThemes(input.options?.theme))
+      if (!isCurrent()) {
+        this.releaseThemeHeightHold(visualRevision)
+        return
+      }
+      const stagingParent = surface.parentElement
+      if (!stagingParent)
+        throw new Error('Theme handoff requires a connected surface')
+      staging = createThemeStagingSurface(surface, currentRect.width || surface.clientWidth)
+      stagingParent.append(staging)
+      const rendered = this.renderInto(mod, staging, input, false, visualRevision, this.diff)
+      instance = rendered.instance
+      if (!(await visualReady) || !isCurrent()) {
+        instance.cleanUp()
+        staging.remove()
+        this.releaseThemeHeightHold(visualRevision)
+        return
+      }
+      let measurable = await waitForMeasurableLayout(staging, isCurrent)
+      while (!measurable && isCurrent()) {
+        // The off-screen staging cannot be measured while the surface is
+        // hidden (route switch, minimized window); retry in batches instead
+        // of failing and permanently keeping the old theme. dispose()/a newer
+        // revision cancel via isCurrent().
+        measurable = await waitForMeasurableLayout(staging, isCurrent)
+      }
+      if (!isCurrent()) {
+        instance.cleanUp()
+        staging.remove()
+        this.releaseThemeHeightHold(visualRevision)
+        return
+      }
+      const previousInstance = this.instance
+      surface.replaceChildren(...Array.from(staging.childNodes))
+      staging.remove()
+      staging = undefined
+      this.instance = instance
+      this.diff = rendered.diff
+      this.renderedInput = input
+      previousInstance?.cleanUp()
+      this.emitRender()
+      await waitForVisualFrame()
+      if (visualRevision === this.visualRevision) {
+        this.releaseThemeHeightHold(visualRevision)
+        this.emitRender()
+      }
+    }
+    catch (error) {
+      instance?.cleanUp()
+      staging?.remove()
+      this.releaseThemeHeightHold(visualRevision)
+      if (visualRevision === this.visualRevision) {
+        this.input = this.renderedInput
+        this.invalidateVisualReady()
+        throw error
+      }
+    }
+  }
+
+  private releaseThemeHeightHold(visualRevision?: number) {
+    const hold = this.themeHeightHold
+    if (!hold || (visualRevision !== undefined && hold.visualRevision !== visualRevision))
+      return
+    hold.surface.style.minHeight = hold.previousMinHeight
+    this.themeHeightHold = undefined
   }
 
   async setOptions(options: NonNullable<DiffSurfaceInput<LAnnotation>['options']>) {
@@ -199,6 +300,7 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
 
   dispose() {
     this.disposed = true
+    this.releaseThemeHeightHold()
     this.invalidateVisualReady()
     this.instance?.cleanUp()
     this.instance = undefined
@@ -214,55 +316,101 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
     const surface = this.surface
     if (!surface || this.disposed)
       return
+    this.releaseThemeHeightHold()
     const visualRevision = this.beginVisualRender()
+    const input = this.input
     const mod = this.module ??= await import('@pierre/diffs')
-    if (this.disposed || surface !== this.surface)
+    if (this.disposed || surface !== this.surface || visualRevision !== this.visualRevision)
       return
 
     this.instance?.cleanUp()
     surface.replaceChildren()
-    if (this.input.kind === 'file') {
-      const instance = new mod.File<LAnnotation>(withInternalPostRender(this.input.options, () => this.markVisualReady(visualRevision)), this.input.workerManager)
-      instance.render({ file: this.input.file, containerWrapper: surface, lineAnnotations: this.input.annotations })
-      this.instance = instance
-      instance.setSelectedLines(this.selectedLines)
-      this.diff = undefined
+    const rendered = this.renderInto(mod, surface, input, resetDiff, visualRevision, this.diff)
+    if (this.disposed || surface !== this.surface || visualRevision !== this.visualRevision) {
+      rendered.instance.cleanUp()
       return
     }
-    if (isDiffInput(this.input)) {
-      if (resetDiff || !this.diff) {
-        if (this.input.kind === 'patch') {
-          const parsed = mod.parsePatchFiles(this.input.patch)
-          const patch = parsed[this.input.patchIndex ?? 0]
+    this.instance = rendered.instance
+    this.diff = rendered.diff
+    this.renderedInput = input
+  }
+
+  private renderInto(
+    mod: typeof import('@pierre/diffs'),
+    surface: HTMLElement,
+    input: DiffSurfaceInput<LAnnotation>,
+    resetDiff: boolean,
+    visualRevision: number,
+    currentDiff: FileDiffMetadata | undefined,
+  ): { instance: PierreInstance<LAnnotation>; diff: FileDiffMetadata | undefined } {
+    if (input.kind === 'file') {
+      const instance = new mod.File<LAnnotation>(
+        withInternalPostRender(input.options, () => this.markVisualReady(visualRevision)),
+        input.workerManager,
+      )
+      this.renderInstance(instance, {
+        file: input.file,
+        containerWrapper: surface,
+        lineAnnotations: input.annotations,
+      })
+      return { instance, diff: undefined }
+    }
+    if (isDiffInput(input)) {
+      let diff = currentDiff
+      if (resetDiff || !diff) {
+        if (input.kind === 'patch') {
+          const parsed = mod.parsePatchFiles(input.patch)
+          const patch = parsed[input.patchIndex ?? 0]
           if (!patch)
-            throw new Error(`Patch does not contain patch index ${this.input.patchIndex ?? 0}`)
-          const fileDiff = patch.files[this.input.fileIndex ?? 0]
+            throw new Error(`Patch does not contain patch index ${input.patchIndex ?? 0}`)
+          const fileDiff = patch.files[input.fileIndex ?? 0]
           if (!fileDiff)
-            throw new Error(`Patch does not contain file index ${this.input.fileIndex ?? 0}`)
-          this.diff = fileDiff
+            throw new Error(`Patch does not contain file index ${input.fileIndex ?? 0}`)
+          diff = fileDiff
         }
-        else if ('fileDiff' in this.input) {
-          this.diff = this.input.fileDiff
+        else if ('fileDiff' in input) {
+          diff = input.fileDiff
         }
         else {
-          this.diff = mod.parseDiffFromFile(
-            this.input.oldFile,
-            this.input.newFile,
-            this.input.options?.parseDiffOptions,
+          diff = mod.parseDiffFromFile(
+            input.oldFile,
+            input.newFile,
+            input.options?.parseDiffOptions,
           )
         }
       }
-      const instance = new mod.FileDiff<LAnnotation>(withInternalPostRender(this.input.options, () => this.markVisualReady(visualRevision)), this.input.workerManager)
-      instance.render({ fileDiff: this.diff, containerWrapper: surface, lineAnnotations: this.input.annotations })
-      this.instance = instance
-      instance.setSelectedLines(this.selectedLines)
-      return
+      const instance = new mod.FileDiff<LAnnotation>(
+        withInternalPostRender(input.options, () => this.markVisualReady(visualRevision)),
+        input.workerManager,
+      )
+      this.renderInstance(instance, {
+        fileDiff: diff,
+        containerWrapper: surface,
+        lineAnnotations: input.annotations,
+      })
+      return { instance, diff }
     }
-    const instance = new mod.UnresolvedFile<LAnnotation>(withInternalPostRender(this.input.options, () => this.markVisualReady(visualRevision)), this.input.workerManager)
-    instance.render({ file: this.input.file, containerWrapper: surface, lineAnnotations: this.input.annotations })
-    this.instance = instance
-    instance.setSelectedLines(this.selectedLines)
-    this.diff = instance.fileDiff
+    const instance = new mod.UnresolvedFile<LAnnotation>(
+      withInternalPostRender(input.options, () => this.markVisualReady(visualRevision)),
+      input.workerManager,
+    )
+    this.renderInstance(instance, {
+      file: input.file,
+      containerWrapper: surface,
+      lineAnnotations: input.annotations,
+    })
+    return { instance, diff: instance.fileDiff }
+  }
+
+  private renderInstance(instance: PierreInstance<LAnnotation>, renderInput: any) {
+    try {
+      ;(instance as any).render(renderInput)
+      instance.setSelectedLines(this.selectedLines)
+    }
+    catch (error) {
+      instance.cleanUp()
+      throw error
+    }
   }
 
   private emitRender() {
@@ -320,4 +468,61 @@ function withInternalPostRender<T extends Record<string, any> | undefined>(optio
 
 function isDiffInput<LAnnotation>(input: DiffSurfaceInput<LAnnotation>) {
   return input.kind === 'diff' || input.kind === 'patch'
+}
+
+function waitForVisualFrame(): Promise<void> {
+  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function')
+    return Promise.resolve()
+  return new Promise((resolve) => {
+    let settled = false
+    let frame: number | undefined
+    let timeout: number | undefined
+    const done = () => {
+      if (settled)
+        return
+      settled = true
+      if (frame !== undefined)
+        window.cancelAnimationFrame(frame)
+      if (timeout !== undefined)
+        window.clearTimeout(timeout)
+      resolve()
+    }
+    frame = window.requestAnimationFrame(done)
+    timeout = window.setTimeout(done, 50)
+  })
+}
+
+async function waitForMeasurableLayout(surface: HTMLElement, isCurrent: () => boolean): Promise<boolean> {
+  let previousHeight = 0
+  let stableFrames = 0
+  for (let frame = 0; frame < 120; frame += 1) {
+    if (!isCurrent())
+      return false
+    const pre = surface.querySelector('diffs-container')?.shadowRoot?.querySelector('pre')
+    const height = Math.ceil(surface.getBoundingClientRect().height || 0)
+    if (pre && height > 0) {
+      stableFrames = height === previousHeight ? stableFrames + 1 : 1
+      previousHeight = height
+      if (stableFrames >= 2)
+        return true
+    }
+    else {
+      previousHeight = 0
+      stableFrames = 0
+    }
+    await waitForVisualFrame()
+  }
+  return false
+}
+
+function createThemeStagingSurface(surface: HTMLElement, width: number): HTMLElement {
+  const staging = surface.cloneNode(false) as HTMLElement
+  staging.style.position = 'fixed'
+  staging.style.visibility = 'hidden'
+  staging.style.pointerEvents = 'none'
+  staging.style.left = '-100000px'
+  staging.style.top = '0'
+  staging.style.width = `${Math.max(1, Math.ceil(width))}px`
+  staging.style.minHeight = ''
+  return staging
 }

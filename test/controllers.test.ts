@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   streamed: [] as string[],
   setupGate: undefined as Promise<void> | undefined,
   postRenderCallbacks: [] as Array<() => void>,
+  resolvedThemes: [] as string[][],
 }))
 
 vi.mock('@pierre/diffs', () => {
@@ -50,10 +51,14 @@ vi.mock('@pierre/diffs', () => {
   class FileDiff extends Base {
     render(props: any) {
       this.fileDiff = props.fileDiff ?? parseDiffFromFile(props.oldFile, props.newFile)
-      if (!props.containerWrapper.querySelector('diffs-container'))
-        props.containerWrapper.appendChild(document.createElement('diffs-container'))
+      let node = props.containerWrapper.querySelector('diffs-container')
+      if (!node) {
+        node = document.createElement('diffs-container')
+        node.attachShadow({ mode: 'open' }).innerHTML = '<pre>rendered code</pre>'
+        props.containerWrapper.appendChild(node)
+      }
       this.annotations = props.lineAnnotations ?? []
-      this.options.onPostRender?.(props.containerWrapper.querySelector('diffs-container'), this, 'update')
+      this.options.onPostRender?.(node, this, 'update')
       return true
     }
   }
@@ -93,6 +98,13 @@ vi.mock('@pierre/diffs', () => {
     diffAcceptRejectHunk(diff: any, hunkIndex: number, action: any) {
       return { ...diff, accepted: { hunkIndex, action } }
     },
+    getThemes(theme: any) {
+      return typeof theme === 'string' ? [theme] : [theme.dark, theme.light]
+    },
+    resolveThemes(themes: string[]) {
+      mocks.resolvedThemes.push(themes)
+      return Promise.resolve(themes)
+    },
   }
 })
 
@@ -104,10 +116,33 @@ beforeEach(() => {
   mocks.instances.length = 0
   mocks.parseDiffCalls.length = 0
   mocks.streamed.length = 0
+  mocks.resolvedThemes.length = 0
   mocks.setupGate = undefined
   mocks.postRenderCallbacks.length = 0
   document.body.replaceChildren()
+  // JSDOM reports zero layout; give staging surfaces a measurable rect so the
+  // theme handoff can finish (the real browser measures actual layout).
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    return DOMRect.fromRect({
+      width: 600,
+      height: this.classList.contains('stream-diffs-surface') ? 120 : 0,
+    })
+  })
 })
+
+/**
+ * The @pierre/diffs mock only queues render callbacks; theme handoff awaits the
+ * visual-ready signal, so run the callbacks queued by this render before
+ * awaiting the promise.
+ */
+async function settleThemeCall(trigger: () => Promise<unknown>) {
+  const before = mocks.postRenderCallbacks.length
+  const promise = trigger()
+  await vi.waitFor(() => expect(mocks.postRenderCallbacks.length).toBeGreaterThan(before))
+  for (const callback of mocks.postRenderCallbacks.splice(before))
+    callback()
+  await promise
+}
 
 describe('CodeStreamController', () => {
   it('ignores empty chunks without changing text or statistics', () => {
@@ -647,7 +682,7 @@ describe('markstream compatibility runtime', () => {
     await runtime.createEditor(document.createElement('div'), 'const value = 1', 'typescript')
 
     options.themes = ['dark-b', 'light-b']
-    await runtime.setTheme('light-b')
+    await settleThemeCall(() => runtime.setTheme('light-b'))
     await runtime.updateCode('const value = 2', 'typescript')
 
     expect((mocks.instances.at(-1) as any).options).toMatchObject({
