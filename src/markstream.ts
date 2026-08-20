@@ -22,6 +22,15 @@ export interface StreamDiffsRuntimeOptions {
   lineAnnotations?: unknown[]
   onController?: (controller: CodeStreamController | DiffStreamController | DiffSurfaceController) => void
   workerManager?: WorkerPoolManager
+  /**
+   * Progressively render large surfaces: the first chunk renders immediately
+   * (default 400 lines, or the number you pass) and the rest is appended in the
+   * background, yielding to the main thread. The full DOM is built in the end,
+   * so interactions and height sync are unchanged — this only removes the long
+   * main-thread blocking task for very large blocks. `false`/`undefined` keeps
+   * the current single-shot full render.
+   */
+  progressiveRender?: boolean | number
   [key: string]: unknown
 }
 
@@ -105,6 +114,7 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
         newFile: asFile(newCode),
         annotations: options.lineAnnotations as any,
         workerManager: options.workerManager,
+        progressiveRender: options.progressiveRender,
         options: {
           ...sharedOptions(),
           diffStyle: options.diffStyle ?? (options.renderSideBySide === false ? 'unified' : 'split'),
@@ -233,6 +243,7 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
       file: asFile(code),
       annotations: options.lineAnnotations as any,
       workerManager: options.workerManager,
+      progressiveRender: options.progressiveRender,
       options: { ...sharedOptions(), ...pickPierreOptions(options) },
     })
     surface = createdSurface
@@ -261,6 +272,7 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
       file: asFile(code),
       annotations: options.lineAnnotations as any,
       workerManager: options.workerManager,
+      progressiveRender: options.progressiveRender,
       options: { ...sharedOptions(), ...pickPierreOptions(options) },
     })
     surface = createdSurface
@@ -551,7 +563,7 @@ function pickPierreOptions(options: StreamDiffsRuntimeOptions) {
     'MAX_HEIGHT', 'theme', 'themes', 'readOnly', 'lineNumbers', 'wordWrap',
     'renderSideBySide', 'autoScrollOnUpdate', 'autoScrollThresholdPx',
     'stream', 'mergeConflict', 'lineAnnotations', 'onController',
-    'workerManager', 'languages', 'onThemeChange',
+    'workerManager', 'progressiveRender', 'languages', 'onThemeChange',
   ])
   const nativeOptions = Object.fromEntries(Object.entries(options).filter(([key]) => !hostKeys.has(key)))
   const legacyFolding = options.diffHideUnchangedRegions

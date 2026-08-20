@@ -113,6 +113,15 @@ export interface FileViewInput<LAnnotation = unknown> {
   annotations?: LineAnnotation<LAnnotation>[]
   options?: FileOptions<LAnnotation>
   workerManager?: WorkerPoolManager
+  /**
+   * Progressively render a large file: the first chunk (default 400 lines, or
+   * the number you pass) is rendered immediately, then the remaining lines are
+   * appended in the background, yielding to the main thread between chunks.
+   * The full DOM is built in the end, so all interactions and height sync work
+   * exactly as before — this only removes the long main-thread blocking task
+   * for very large blocks. `false`/`undefined` disables it.
+   */
+  progressiveRender?: boolean | number
 }
 
 export interface DiffViewInput<LAnnotation = unknown> {
@@ -122,6 +131,8 @@ export interface DiffViewInput<LAnnotation = unknown> {
   annotations?: DiffLineAnnotation<LAnnotation>[]
   options?: FileDiffOptions<LAnnotation>
   workerManager?: WorkerPoolManager
+  /** See `FileViewInput.progressiveRender`. */
+  progressiveRender?: boolean | number
 }
 
 export interface ParsedDiffViewInput<LAnnotation = unknown> {
@@ -130,6 +141,8 @@ export interface ParsedDiffViewInput<LAnnotation = unknown> {
   annotations?: DiffLineAnnotation<LAnnotation>[]
   options?: FileDiffOptions<LAnnotation>
   workerManager?: WorkerPoolManager
+  /** See `FileViewInput.progressiveRender`. */
+  progressiveRender?: boolean | number
 }
 
 export interface PatchViewInput<LAnnotation = unknown> {
@@ -140,6 +153,8 @@ export interface PatchViewInput<LAnnotation = unknown> {
   annotations?: DiffLineAnnotation<LAnnotation>[]
   options?: FileDiffOptions<LAnnotation>
   workerManager?: WorkerPoolManager
+  /** See `FileViewInput.progressiveRender`. */
+  progressiveRender?: boolean | number
 }
 
 export interface MergeConflictViewInput<LAnnotation = unknown> {
@@ -148,6 +163,8 @@ export interface MergeConflictViewInput<LAnnotation = unknown> {
   annotations?: DiffLineAnnotation<LAnnotation>[]
   options?: UnresolvedFileOptions<LAnnotation>
   workerManager?: WorkerPoolManager
+  /** See `FileViewInput.progressiveRender`. */
+  progressiveRender?: boolean | number
 }
 
 export type DiffSurfaceInput<LAnnotation = unknown>
