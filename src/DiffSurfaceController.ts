@@ -221,21 +221,12 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
 
     this.instance?.cleanUp()
     surface.replaceChildren()
-    const progressive = resolveProgressiveRender(this.input)
     if (this.input.kind === 'file') {
-      const file = this.input.file
       const instance = new mod.File<LAnnotation>(withInternalPostRender(this.input.options, () => this.markVisualReady(visualRevision)), this.input.workerManager)
-      instance.render({
-        file,
-        containerWrapper: surface,
-        lineAnnotations: this.input.annotations,
-        renderRange: initialRenderRange(progressive, countFileLines(file.contents)),
-      })
+      instance.render({ file: this.input.file, containerWrapper: surface, lineAnnotations: this.input.annotations })
       this.instance = instance
       instance.setSelectedLines(this.selectedLines)
       this.diff = undefined
-      if (progressive)
-        this.scheduleProgressiveFill(instance, () => countFileLines(file.contents), progressive, visualRevision)
       return
     }
     if (isDiffInput(this.input)) {
@@ -262,83 +253,16 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
         }
       }
       const instance = new mod.FileDiff<LAnnotation>(withInternalPostRender(this.input.options, () => this.markVisualReady(visualRevision)), this.input.workerManager)
-      instance.render({
-        fileDiff: this.diff,
-        containerWrapper: surface,
-        lineAnnotations: this.input.annotations,
-        renderRange: initialRenderRange(progressive, countDiffLines(this.diff)),
-      })
+      instance.render({ fileDiff: this.diff, containerWrapper: surface, lineAnnotations: this.input.annotations })
       this.instance = instance
       instance.setSelectedLines(this.selectedLines)
-      if (progressive)
-        this.scheduleProgressiveFill(instance, () => countDiffLines(this.diff), progressive, visualRevision)
       return
     }
     const instance = new mod.UnresolvedFile<LAnnotation>(withInternalPostRender(this.input.options, () => this.markVisualReady(visualRevision)), this.input.workerManager)
-    const file = this.input.file
-    instance.render({
-      file,
-      containerWrapper: surface,
-      lineAnnotations: this.input.annotations,
-      renderRange: initialRenderRange(progressive, countFileLines(file.contents)),
-    })
+    instance.render({ file: this.input.file, containerWrapper: surface, lineAnnotations: this.input.annotations })
     this.instance = instance
     instance.setSelectedLines(this.selectedLines)
     this.diff = instance.fileDiff
-    if (progressive)
-      this.scheduleProgressiveFill(instance, () => countFileLines(file.contents), progressive, visualRevision)
-  }
-
-  /**
-   * Progressively appends the remaining lines in the background by growing the
-   * surface's `renderRange`. Each step calls `instance.render({ renderRange })`
-   * with a larger range; `@pierre/diffs` turns that into an incremental append
-   * (`applyPartialRender`), so only the newly exposed rows are rendered and
-   * inserted. Yielding to the main thread between steps keeps the UI
-   * responsive while the full DOM is built.
-   */
-  private scheduleProgressiveFill(
-    instance: PierreInstance<LAnnotation>,
-    getTotalLines: () => number,
-    progressive: number,
-    visualRevision: number,
-  ) {
-    const total = getTotalLines()
-    const chunk = Math.max(1, progressive)
-    if (total <= chunk)
-      return
-
-    // @pierre/diffs `File`/`FileDiff`/`UnresolvedFile` all accept a partial
-    // render call with only `renderRange` when the content is unchanged; the
-    // TypeScript overloads require the full props, so call through a narrow
-    // structural type.
-    const partialRender = instance as unknown as {
-      render: (props: { renderRange?: RenderRangeLike }) => unknown
-    }
-
-    void (async () => {
-      let rendered = chunk
-      // Give the first chunk a couple of frames to paint (and let hosts that
-      // gate on visual readiness observe it) before continuing the fill.
-      await nextPaintTick()
-      for (;;) {
-        if (this.disposed || this.instance !== instance || this.visualRevision !== visualRevision)
-          return
-        rendered = Math.min(rendered + chunk, total)
-        const renderRange: RenderRangeLike = rendered >= total
-          ? { startingLine: 0, totalLines: Infinity, bufferBefore: 0, bufferAfter: 0 }
-          : { startingLine: 0, totalLines: rendered, bufferBefore: 0, bufferAfter: 0 }
-        try {
-          partialRender.render({ renderRange })
-        }
-        catch {
-          return
-        }
-        if (rendered >= total)
-          return
-        await nextPaintTick()
-      }
-    })()
   }
 
   private emitRender() {
@@ -397,49 +321,3 @@ function withInternalPostRender<T extends Record<string, any> | undefined>(optio
 function isDiffInput<LAnnotation>(input: DiffSurfaceInput<LAnnotation>) {
   return input.kind === 'diff' || input.kind === 'patch'
 }
-
-function resolveProgressiveRender<LAnnotation>(input: DiffSurfaceInput<LAnnotation>) {
-  const value = input.progressiveRender
-  if (value === undefined || value === false)
-    return undefined
-  return typeof value === 'number' ? Math.max(1, Math.floor(value)) : DEFAULT_PROGRESSIVE_CHUNK
-}
-
-function initialRenderRange(progressive: number | undefined, totalLines: number) {
-  if (!progressive || totalLines <= progressive)
-    return undefined
-  return { startingLine: 0, totalLines: progressive, bufferBefore: 0, bufferAfter: 0 }
-}
-
-function countFileLines(contents: string) {
-  if (!contents)
-    return 0
-  let lines = 1
-  for (let index = 0; index < contents.length; index += 1) {
-    if (contents.charCodeAt(index) === 10)
-      lines += 1
-  }
-  return lines
-}
-
-function countDiffLines(diff: FileDiffMetadata | undefined) {
-  if (!diff)
-    return 0
-  return Math.max(diff.additionLines.length, diff.deletionLines.length)
-}
-
-function nextPaintTick() {
-  return new Promise<void>((resolve) => {
-    setTimeout(resolve, DEFAULT_PROGRESSIVE_DELAY_MS)
-  })
-}
-
-interface RenderRangeLike {
-  startingLine: number
-  totalLines: number
-  bufferBefore: number
-  bufferAfter: number
-}
-
-const DEFAULT_PROGRESSIVE_CHUNK = 400
-const DEFAULT_PROGRESSIVE_DELAY_MS = 30
