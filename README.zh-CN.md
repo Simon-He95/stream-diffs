@@ -191,13 +191,24 @@ import { StreamCode, StreamDiff, StreamMergeConflict } from 'stream-diffs/vue'
 import { parseDiffFromFile, parsePatchFiles } from 'stream-diffs/pierre'
 ```
 
+就地编辑是可选能力，同样通过独立入口暴露，并复用同一份 `@pierre/diffs`，避免 highlighter 注册表被拆成两份：
+
+```ts
+import { Editor } from 'stream-diffs/edit'
+
+await surface.prepareForEditing()
+const editor = new Editor('file-diff', { onChange: event => save(event.file) })
+const detach = editor.edit(surface.getNativeInstance()!)
+```
+
 ## 设计边界
 
 - 流式阶段只读、只追加。
 - delta append 的性能优于 cumulative snapshot。
 - 流式阶段使用 `FileStream`，最终 Diff 基于完整 snapshot 计算，保证准确性。
 - 超长输出会继续以只追加纯文本显示，并仍可最终生成准确 File 或 Diff。
-- 不包含 cursor editing、undo/redo、Monaco model、补全、LSP 与诊断运行时。
+- 不包含 Monaco model、补全、LSP 与诊断运行时。
+- cursor editing 与 undo/redo 由 `stream-diffs/edit` 提供；流式管线不持有它们，替换 native surface 会结束编辑会话。
 - `@pierre/diffs` 在首次 mount 时动态加载，SSR import 安全。
 
 ## License

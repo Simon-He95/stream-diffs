@@ -166,7 +166,7 @@ export class CodeStreamController {
         view: 'file'
         annotations?: LineAnnotation<LAnnotation>[]
         workerManager?: CodeStreamOptions['workerManager']
-      } & Partial<FileOptions<LAnnotation>>
+      } & Partial<FileOptions<LAnnotation, undefined>>
       const { annotations, workerManager, view: _, ...fileOptions } = fileFinalize
       finalizedSurface = createDiffSurface({
         kind: 'file',
@@ -186,7 +186,7 @@ export class CodeStreamController {
         original: string
         annotations?: DiffLineAnnotation<LAnnotation>[]
         workerManager?: CodeStreamOptions['workerManager']
-      } & Partial<FileDiffOptions<LAnnotation>>
+      } & Partial<FileDiffOptions<LAnnotation, undefined>>
       const { annotations, original, workerManager, view: _, ...diffOptions } = diffFinalize
       finalizedSurface = createDiffSurface({
         kind: 'diff',

@@ -6,6 +6,7 @@ export default defineConfig({
     markstream: 'src/markstream.ts',
     vue: 'src/vue.ts',
     pierre: 'src/pierre.ts',
+    edit: 'src/edit.ts',
   },
   format: ['esm'],
   dts: true,

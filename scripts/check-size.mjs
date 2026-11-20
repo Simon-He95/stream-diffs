@@ -11,11 +11,17 @@ if (!core)
   throw new Error('Missing shared stream controller runtime chunk')
 
 const budgets = {
-  'index.mjs': 210,
+  // Root entry gains the `resolvePreferredHighlighter` re-export; it must stay a
+  // thin barrel with no eager `@pierre/diffs` import.
+  'index.mjs': 260,
   'markstream.mjs': 4_980,
   'vue.mjs': 1_520,
   'pierre.mjs': 300,
-  [core]: 5_700,
+  // Pass-through only; it must stay a re-export, never real editor code.
+  'edit.mjs': 120,
+  // + the `auto` highlighter resolver (probe + memo); keep this from absorbing
+  // unrelated growth by raising it deliberately per feature.
+  [core]: 6_700,
 }
 
 for (const [file, maximum] of Object.entries(budgets)) {
@@ -27,7 +33,10 @@ for (const [file, maximum] of Object.entries(budgets)) {
 }
 
 const total = Object.values(sizes).reduce((sum, size) => sum + size, 0)
-if (total > 12_560)
-  throw new Error(`Total first-party runtime is ${total} gzip bytes; budget is 12560`)
+// Covers `parsePatchOptions`, the `prepareForEditing` bridge, and the `auto`
+// highlighter resolver. tsdown output varies by ~150 gzip bytes between builds,
+// so keep a little slack and raise this deliberately per feature.
+if (total > 13_600)
+  throw new Error(`Total first-party runtime is ${total} gzip bytes; budget is 13600`)
 
 console.log(`runtime gzip: ${total} bytes`, sizes)

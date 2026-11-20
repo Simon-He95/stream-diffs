@@ -1,7 +1,7 @@
 {
   "name": "stream-diffs",
   "type": "module",
-  "version": "0.0.2",
+  "version": "0.0.4",
   "description": "Lightweight, stream-native code and diff rendering for AI output, powered by @pierre/diffs and Shiki.",
   "author": "Simon He",
   "license": "MIT",
@@ -27,6 +27,10 @@
     "./pierre": {
       "types": "./dist/pierre.d.mts",
       "import": "./dist/pierre.mjs"
+    },
+    "./edit": {
+      "types": "./dist/edit.d.mts",
+      "import": "./dist/edit.mjs"
     }
   },
   "module": "./dist/index.mjs",
@@ -51,7 +55,7 @@
     "release:publish": "pnpm build && pnpm publish --no-git-checks"
   },
   "dependencies": {
-    "@pierre/diffs": "^1.2.12"
+    "@pierre/diffs": "^1.6.4"
   },
   "peerDependencies": {
     "vue": "^3.3.0"

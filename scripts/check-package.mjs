@@ -40,4 +40,10 @@ for (const name of ['parseDiffFromFile', 'parsePatchFiles', 'diffAcceptRejectHun
     throw new Error(`Missing Pierre utility export: ${name}`)
 }
 
+const editModule = await import(pathToFileURL(resolve(root, pkg.exports['./edit'].import)).href)
+for (const name of ['Editor', 'EditStateManager', 'TextDocument']) {
+  if (editModule[name] == null)
+    throw new Error(`Missing edit export: ${name}`)
+}
+
 console.log('package exports and Node imports: ok')

@@ -72,10 +72,13 @@ Creates one imperative surface. All DOM-heavy code loads on `mount()`.
 
 ```ts
 { kind: 'diff', fileDiff, annotations?, options?: FileDiffOptions }
-{ kind: 'patch', patch, patchIndex?, fileIndex?, annotations?, options?: FileDiffOptions }
+{ kind: 'patch', patch, patchIndex?, fileIndex?, annotations?, options?: FileDiffOptions, parsePatchOptions?: ParsePatchOptions }
 ```
 
 Patch parsing is lazy with the renderer. Multi-commit patches can select both a patch and file index.
+`parsePatchOptions` is forwarded to `parsePatchFiles()`: pass `cacheKeyPrefix` so worker-pool
+renders can cache parsed patches, `throwOnError` for strict parsing, or `disableLineMatching`
+to keep a patch's own change blocks.
 
 Every File, Diff, Patch, and Merge input accepts `workerManager?: WorkerPoolManager`. It is forwarded unchanged to the native Pierre constructor.
 
@@ -102,6 +105,70 @@ The `stream-diffs/pierre` entry re-exports common non-component utilities: `pars
 Native types are also re-exported. Common public types remain available from the root; the complete upstream type surface is available from `stream-diffs/pierre`.
 
 When token callbacks are configured, `stream-diffs` automatically enables the upstream token transformer so `data-char` metadata and hover events are reliably available.
+
+### Upgrading to `@pierre/diffs` 1.6.x
+
+`stream-diffs` depends on `@pierre/diffs@^1.6.4`. Host code that imports native types
+directly needs three mechanical changes:
+
+- `FileOptions` and `FileDiffOptions` take a second `Caret` type parameter. Use
+  `FileOptions<MyAnnotation, undefined>` / `FileDiffOptions<MyAnnotation, undefined>` unless
+  you attach an editor. `stream-diffs` itself has no editor surface, so it pins `undefined`.
+- `parsePatchFiles(patch, cacheKeyPrefix?, throwOnError?)` moved to
+  `parsePatchFiles(patch, { cacheKeyPrefix, throwOnError, disableLineMatching })`.
+- The root entry no longer re-exports `codeToHtml`, `CodeToHastOptions`, `ThemeRegistration`,
+  `ThemeRegistrationResolved`, `ShikiTransformer`, `BundledLanguage`, `LanguageRegistration`,
+  or `ShikiStreamTokenizer*`. Import them from `shiki`/`@shiki/*`, or use
+  `DiffsStreamTokenizer` and `FileStream`.
+
+Two upstream capabilities are worth opting into from the host:
+
+- `preferredHighlighter: 'auto'` resolves once per page to the WASM `highlights` backend when
+  the platform can run it, and to `shiki-js` when it cannot or when the backend fails to load.
+  Pass an explicit `'shiki-js'`, `'shiki-wasm'`, or `'highlights'` to pin one. Only one backend
+  can be active per thread and the first caller fixes it, so this is app-wide rather than
+  per-surface; `resolvePreferredHighlighter()` reports what `auto` picked.
+- Worker pools accept `mainThreadMaxCharacters` (small files stay on the main thread and skip
+  the worker round trip) and `onWorkerError` (report load failures instead of `console.error`).
+
+## Editing a finalized surface
+
+`stream-diffs` stays read-only: it renders a stream, then hands the shell to one native
+`File`/`FileDiff`. Upstream `@pierre/diffs` has shipped an editor since 1.3, and this package
+re-exports it from `stream-diffs/edit` so the editor runs on the same `@pierre/diffs` copy the
+surfaces use. The highlighter registry is module-level, so a separately installed copy cannot
+share it.
+
+```ts
+import { createDiffSurface } from 'stream-diffs'
+import { Editor } from 'stream-diffs/edit'
+
+const surface = createDiffSurface({ kind: 'diff', oldFile, newFile })
+await surface.mount(container)
+await surface.prepareForEditing()
+
+const editor = new Editor('file-diff', {
+  onChange: event => save(event.file),
+  onComplete: event => event.file.contents === saved ? 'reject' : 'accept',
+}, 'review-draft')
+const detach = editor.edit(surface.getNativeInstance()!)
+```
+
+- `prepareForEditing()` hydrates a partial diff. A `kind: 'patch'` surface only becomes
+  editable when `options.loadDiffFiles` can supply both complete sides; `File` surfaces and
+  complete diffs resolve immediately.
+- The editor creates its document during its first render sync, so `getText()` and
+  `applyEdits()` are only meaningful after one render settles.
+- The third constructor argument (`editStateKey`) keeps a draft and its undo history in
+  memory so a later editor with the same key resumes it.
+- `edit()` returns a detach function. It throws for `merge-conflict` surfaces, which are not
+  editable, and for diffs that are still partial.
+- Anything that replaces the native instance ends the session: `update()`, `setOptions()`,
+  `setTheme()`, `setThemeType()`, and `dispose()` all re-render. Re-attach after those calls,
+  or drive the editor from the host's own copy of the data.
+
+This entry is a pass-through. It is only loaded when imported, so it adds nothing to the eager
+runtime.
 
 ## Vue entry
 

@@ -44,7 +44,7 @@ export const StreamCode = defineComponent({
     maxHeight: [Number, String],
     theme: [String, Object],
     options: { type: Object as PropType<CodeStreamOptions>, default: () => ({}) },
-    fileOptions: { type: Object as PropType<FileOptions<unknown>>, default: () => ({}) },
+    fileOptions: { type: Object as PropType<FileOptions<unknown, undefined>>, default: () => ({}) },
     annotations: { type: Array as PropType<LineAnnotation<unknown>[]>, default: () => [] },
     workerManager: Object as PropType<WorkerPoolManager>,
   },

@@ -48,6 +48,18 @@ describe('real @pierre/diffs renderers', () => {
     controller.dispose()
   }, 10_000)
 
+  it('reports visual readiness for a highlighted surface', async () => {
+    const target = document.createElement('div')
+    const surface = createDiffSurface({
+      kind: 'file',
+      file: { name: 'answer.ts', contents: 'export const answer = 42\n', lang: 'typescript' },
+      options: { theme: 'pierre-dark' },
+    })
+    await surface.mount(target)
+    await expect(surface.whenVisualReady()).resolves.toBe(true)
+    surface.dispose()
+  }, 10_000)
+
   it('renders a real split diff and invokes token-capable options', async () => {
     const target = document.createElement('div')
     const tokenEnter = vi.fn()
@@ -150,6 +162,30 @@ describe('real @pierre/diffs renderers', () => {
     })
     expect(controller.getDiff()?.isPartial).toBe(true)
     expect(controller.getResolvedFile()).toBeUndefined()
+    controller.dispose()
+  })
+
+  it('forwards parsePatchOptions to the patch parser', async () => {
+    const target = document.createElement('div')
+    const controller = createDiffSurface({
+      kind: 'patch',
+      patch: [
+        'diff --git a/answer.ts b/answer.ts',
+        '--- a/answer.ts',
+        '+++ b/answer.ts',
+        '@@ -1 +1 @@',
+        '-export const answer = 0',
+        '+export const answer = 42',
+        '',
+      ].join('\n'),
+      parsePatchOptions: { cacheKeyPrefix: 'review-cache' },
+      options: { diffStyle: 'unified' },
+    })
+    await controller.mount(target)
+    await vi.waitFor(() => {
+      expect(target.querySelector('diffs-container')?.shadowRoot?.textContent).toContain('42')
+    })
+    expect(controller.getDiff()?.cacheKey).toContain('review-cache')
     controller.dispose()
   })
 

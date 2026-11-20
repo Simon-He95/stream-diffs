@@ -105,3 +105,10 @@ const review = createDiffSurface({
 The `?worker` import above is the Vite form; use the equivalent worker import for your bundler. The same manager can be shared across surfaces. Lifecycle and termination remain under application control through the upstream worker APIs.
 
 The upstream Worker Pool API is experimental. Its render options control worker-generated tokens, so initialize the manager with `useTokenTransformer: true` when using Token Hover callbacks. Theme changes must also be applied through `workerManager.setRenderOptions(...)`.
+
+Since `@pierre/diffs@1.6`, the pool also takes:
+
+- `mainThreadMaxCharacters`: files and diffs at or below this many characters highlight on the main thread instead of paying a worker round trip. Unset keeps the old behavior where every highlight uses a worker.
+- `workerInitializationTimeout` (default `10s`) and `onWorkerError`, which replaces the default `console.error` for worker load failures. A pool that fails to initialize still lets every surface fall back to main-thread highlighting.
+
+Surfaces accept `preferredHighlighter: 'auto'`, which uses the WASM `highlights` backend when `canUseWASM()` reports support and falls back to `shiki-js` otherwise (or when the backend fails to load). To keep worker and main-thread output identical, give the pool the same backend: `highlighterOptions.preferredHighlighter: 'highlights'`. One backend can be active per thread, so choose it before the first highlight and dispose existing highlighters before switching.

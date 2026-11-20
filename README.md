@@ -291,13 +291,25 @@ Low-level synchronous Pierre utilities use a separate entry so the root package 
 import { parseDiffFromFile, parsePatchFiles } from 'stream-diffs/pierre'
 ```
 
+In-place editing is opt-in and also lives on its own entry, re-exported from the same
+`@pierre/diffs` copy so the highlighter registry stays shared:
+
+```ts
+import { Editor } from 'stream-diffs/edit'
+
+await surface.prepareForEditing()
+const editor = new Editor('file-diff', { onChange: event => save(event.file) })
+const detach = editor.edit(surface.getNativeInstance()!)
+```
+
 ## Design constraints
 
 - Read-only and append-only while streaming.
 - Delta append is faster than cumulative snapshots.
 - Streaming uses `FileStream`; accurate diffs are generated from the final snapshot.
 - Oversized streams continue in append-only plain text and can still finalize to an accurate File or Diff.
-- No cursor editing, undo stack, Monaco text model, completion, LSP, or diagnostics runtime.
+- No Monaco text model, completion, LSP, or diagnostics runtime.
+- Cursor editing and undo belong to `stream-diffs/edit`; the streaming pipeline never owns them, and replacing the native surface ends the session.
 - `@pierre/diffs` is loaded on first mount, so importing `stream-diffs` remains SSR-safe.
 
 ## License

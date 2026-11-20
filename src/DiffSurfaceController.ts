@@ -4,14 +4,19 @@ import type {
   FileContents,
   FileDiff,
   FileDiffMetadata,
+  FileDiffOptions,
+  FileOptions,
   LineAnnotation,
   SelectedLineRange,
+  UnresolvedFileOptions,
   UnresolvedFile,
 } from '@pierre/diffs'
 import type { DiffSurfaceController as Controller, DiffSurfaceInput } from './types'
 import { createShell } from './internal'
+import { resolvePreferredHighlighter } from './preferredHighlighter'
 
 type PierreInstance<LAnnotation> = File<LAnnotation> | FileDiff<LAnnotation> | UnresolvedFile<LAnnotation>
+type SurfaceOptionsUnion<LAnnotation> = NonNullable<DiffSurfaceInput<LAnnotation>['options']>
 
 export class DiffSurfaceController<LAnnotation = unknown> implements Controller<LAnnotation> {
   private container?: HTMLElement
@@ -79,6 +84,7 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
       fileIndex,
       annotations,
       options: this.input.kind === 'patch' ? this.input.options : undefined,
+      parsePatchOptions: this.input.kind === 'patch' ? this.input.parsePatchOptions : undefined,
       workerManager: this.input.kind === 'patch' ? this.input.workerManager : undefined,
     })
   }
@@ -182,6 +188,17 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
     return this.instance
   }
 
+  /**
+   * Hydrates a partial diff before an editor attaches to it. Upstream requires
+   * complete file contents for both sides, so a `kind: 'patch'` surface only
+   * becomes editable when `options.loadDiffFiles` can supply them. Resolves
+   * immediately for File surfaces and already-complete diffs.
+   */
+  async prepareForEditing() {
+    const instance = this.instance as { prepareForEditing?: () => Promise<void> } | undefined
+    await instance?.prepareForEditing?.()
+  }
+
   onDidRender(listener: () => void) {
     this.renderListeners.add(listener)
     return { dispose: () => this.renderListeners.delete(listener) }
@@ -210,6 +227,26 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
 
   private module?: typeof import('@pierre/diffs')
 
+  /**
+   * Replaces `preferredHighlighter: 'auto'` with the resolved backend before the
+   * native instance is created. The decision itself is app-wide and cached.
+   */
+  private async applyAutoHighlighter() {
+    const options = this.input.options as { preferredHighlighter?: string, theme?: any } | undefined
+    if (options?.preferredHighlighter !== 'auto')
+      return
+
+    const lang = this.input.kind === 'file' || this.input.kind === 'merge-conflict'
+      ? this.input.file.lang
+      : this.diff?.lang
+    const resolved = await resolvePreferredHighlighter({
+      themes: options.theme,
+      langs: lang == null ? undefined : [lang],
+    })
+    if (this.input.options === options)
+      this.input.options = { ...options, preferredHighlighter: resolved } as SurfaceOptionsUnion<LAnnotation>
+  }
+
   private async render(resetDiff = true) {
     const surface = this.surface
     if (!surface || this.disposed)
@@ -219,10 +256,14 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
     if (this.disposed || surface !== this.surface)
       return
 
+    await this.applyAutoHighlighter()
+    if (this.disposed || surface !== this.surface)
+      return
+
     this.instance?.cleanUp()
     surface.replaceChildren()
     if (this.input.kind === 'file') {
-      const instance = new mod.File<LAnnotation>(withInternalPostRender(this.input.options, () => this.markVisualReady(visualRevision)), this.input.workerManager)
+      const instance = new mod.File<LAnnotation>(withInternalPostRender(this.input.options as FileOptions<LAnnotation, undefined> | undefined, () => this.markVisualReady(visualRevision)), this.input.workerManager)
       instance.render({ file: this.input.file, containerWrapper: surface, lineAnnotations: this.input.annotations })
       this.instance = instance
       instance.setSelectedLines(this.selectedLines)
@@ -232,7 +273,7 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
     if (isDiffInput(this.input)) {
       if (resetDiff || !this.diff) {
         if (this.input.kind === 'patch') {
-          const parsed = mod.parsePatchFiles(this.input.patch)
+          const parsed = mod.parsePatchFiles(this.input.patch, this.input.parsePatchOptions)
           const patch = parsed[this.input.patchIndex ?? 0]
           if (!patch)
             throw new Error(`Patch does not contain patch index ${this.input.patchIndex ?? 0}`)
@@ -248,17 +289,17 @@ export class DiffSurfaceController<LAnnotation = unknown> implements Controller<
           this.diff = mod.parseDiffFromFile(
             this.input.oldFile,
             this.input.newFile,
-            this.input.options?.parseDiffOptions,
+            (this.input.options as FileDiffOptions<LAnnotation, undefined> | undefined)?.parseDiffOptions,
           )
         }
       }
-      const instance = new mod.FileDiff<LAnnotation>(withInternalPostRender(this.input.options, () => this.markVisualReady(visualRevision)), this.input.workerManager)
+      const instance = new mod.FileDiff<LAnnotation>(withInternalPostRender(this.input.options as FileDiffOptions<LAnnotation, undefined> | undefined, () => this.markVisualReady(visualRevision)), this.input.workerManager)
       instance.render({ fileDiff: this.diff, containerWrapper: surface, lineAnnotations: this.input.annotations })
       this.instance = instance
       instance.setSelectedLines(this.selectedLines)
       return
     }
-    const instance = new mod.UnresolvedFile<LAnnotation>(withInternalPostRender(this.input.options, () => this.markVisualReady(visualRevision)), this.input.workerManager)
+    const instance = new mod.UnresolvedFile<LAnnotation>(withInternalPostRender(this.input.options as UnresolvedFileOptions<LAnnotation> | undefined, () => this.markVisualReady(visualRevision)), this.input.workerManager)
     instance.render({ file: this.input.file, containerWrapper: surface, lineAnnotations: this.input.annotations })
     this.instance = instance
     instance.setSelectedLines(this.selectedLines)
