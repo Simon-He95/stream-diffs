@@ -1,6 +1,6 @@
 # stream-diffs
 
-Lightweight, read-only code and diff rendering for AI output. `stream-diffs` is powered by [`@pierre/diffs`](https://diffs.com/) and Shiki, streams appended code without Monaco models or workers, and switches to interactive file or diff surfaces when needed.
+Lightweight, stream-native code and diff rendering for AI output, read-only by default with opt-in editing. `stream-diffs` is powered by [`@pierre/diffs`](https://diffs.com/) and Shiki, streams appended code without Monaco models or workers, and switches to interactive file or diff surfaces when needed.
 
 ## Install
 
@@ -291,16 +291,29 @@ Low-level synchronous Pierre utilities use a separate entry so the root package 
 import { parseDiffFromFile, parsePatchFiles } from 'stream-diffs/pierre'
 ```
 
-In-place editing is opt-in and also lives on its own entry, re-exported from the same
-`@pierre/diffs` copy so the highlighter registry stays shared:
+In-place editing is opt-in and lazy: the upstream editor chunk is only imported when a host
+starts a session:
 
 ```ts
-import { Editor } from 'stream-diffs/edit'
+const editor = await surface.startEditing({
+  onChange: event => save(event.file),
+  onComplete: event => event.file.contents === saved ? 'reject' : 'accept',
+}, 'review-draft')
 
-await surface.prepareForEditing()
-const editor = new Editor('file-diff', { onChange: event => save(event.file) })
-const detach = editor.edit(surface.getNativeInstance()!)
+surface.applyEdits(edits)
+surface.undo()
+surface.redo()
+surface.revealLine(42, 'additions')
+surface.stopEditing('complete')
 ```
+
+`startEditing()` waits for `prepareForEditing()` and the editor's first attached render sync, so
+partial patches hydrate first, an in-flight worker-pool highlight is reused instead of re-run on
+the main thread, and `applyEdits()` is immediately usable. Set
+`useTokenTransformer: true` on surfaces you know will be edited to let upstream reuse the
+rendered rows. The raw `Editor` is still available from `stream-diffs/edit` for hosts that
+want to own the session directly; it re-exports the same `@pierre/diffs` copy so the
+highlighter and edit-state registries stay shared.
 
 ## Design constraints
 
@@ -309,7 +322,7 @@ const detach = editor.edit(surface.getNativeInstance()!)
 - Streaming uses `FileStream`; accurate diffs are generated from the final snapshot.
 - Oversized streams continue in append-only plain text and can still finalize to an accurate File or Diff.
 - No Monaco text model, completion, LSP, or diagnostics runtime.
-- Cursor editing and undo belong to `stream-diffs/edit`; the streaming pipeline never owns them, and replacing the native surface ends the session.
+- Cursor editing and undo belong to `surface.startEditing()` / `stream-diffs/edit`; the streaming pipeline never owns them, and replacing the native surface ends the session.
 - `@pierre/diffs` is loaded on first mount, so importing `stream-diffs` remains SSR-safe.
 
 ## License

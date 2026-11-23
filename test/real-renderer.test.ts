@@ -101,6 +101,7 @@ describe('real @pierre/diffs renderers', () => {
     }, { timeout: 5000 })
     const pointerMove = new Event('pointermove', { bubbles: true, composed: true })
     Object.defineProperty(pointerMove, 'pointerType', { value: 'mouse' })
+    Object.defineProperty(pointerMove, 'buttons', { value: 0 })
     token!.dispatchEvent(pointerMove)
     expect(tokenEnter).toHaveBeenCalledWith(
       expect.objectContaining({ tokenText: expect.any(String), tokenElement: token }),

@@ -86,7 +86,7 @@ Every File, Diff, Patch, and Merge input accepts `workerManager?: WorkerPoolMana
 
 - `mount(container)` and `dispose()` own the DOM lifecycle.
 - `update(input)`, `updateFile()`, `updateDiff()`, `updateParsedDiff()`, `updatePatch()`, and `updateMergeConflict()` replace render data.
-- `setSelectedLines(range)` sets or clears a controlled selection.
+- `setSelectedLines(range, options?)` sets or clears a controlled selection; `options` forwards upstream's `SelectionWriteOptions` (`notify`, `activeLineSide`, `lineNumberOnly`).
 - `setAnnotations(annotations)` updates comments without recreating the controller.
 - `setThemeType(type)`, `setTheme(theme)`, and `setOptions(options)` update appearance and native Diffs options without discarding accepted/rejected state.
 - `acceptReject(hunkIndex, action)` transforms the current diff and rerenders it.
@@ -97,6 +97,14 @@ Every File, Diff, Patch, and Merge input accepts `workerManager?: WorkerPoolMana
 - `getNativeInstance()` exposes the mounted `File`, `FileDiff`, or `UnresolvedFile` for upstream APIs not wrapped by the controller.
 - `onDidRender(listener)` observes initial and subsequent native render completion, including asynchronous highlighting updates. It returns a disposable subscription.
 - `whenVisualReady()` waits for the latest native post-render commit, including a render that supersedes the one originally awaited. It resolves `true` after that commit and `false` if the surface is disposed before it becomes ready or no visual render exists.
+- `isReadyToEdit()` reports whether an editor can attach immediately. Since `@pierre/diffs@1.7`, `prepareForEditing()` also awaits an in-flight worker-pool highlight.
+- `startEditing(options?, editStateKey?)`, `stopEditing(reason?)`, and `isEditing()` own an upstream edit session. The editor chunk loads lazily the first time editing starts; read-only hosts never download it. `startEditing()` resolves after `prepareForEditing()` and the editor's first render sync attaches it, so `getEditingText()` and `applyEdits()` are usable immediately.
+- `getEditor()`, `getEditingFile()`, `getEditingText()`, `canUndo()`, `canRedo()`, `undo()`, `redo()`, and `applyEdits()` forward the active editor document and history.
+- `focusEditor()`, `blurEditor()`, `getEditorViewState()`, `setEditorViewState()`, and `setEditorSelections()` forward view state and selection APIs.
+- `revealLine(line, side?)`, `expandLine(target)`, `expandHunk(index, direction, override?)`, `setEditorActiveLine(line, options?)`, `getNearestRenderableLine()`, and `isLineInCollapsedContext()` expose the 1.7 navigation and collapsed-context APIs.
+- `getCodeScrollLeft()` and `setCodeScrollLeft(position)` expose horizontal scroll without reaching into Shadow DOM.
+
+Any controller call that replaces the native instance — `update()`, `setOptions()`, `setTheme()`, `acceptReject()`, or `dispose()` — ends the active edit session first. Re-attach after the new render settles. `setThemeType()` and `setAnnotations()` update the live instance without ending the session.
 
 ## Native Diffs exports
 
@@ -106,23 +114,44 @@ Native types are also re-exported. Common public types remain available from the
 
 When token callbacks are configured, `stream-diffs` automatically enables the upstream token transformer so `data-char` metadata and hover events are reliably available.
 
-### Upgrading to `@pierre/diffs` 1.6.x
+### Upgrading to `@pierre/diffs` 1.7.x
 
-`stream-diffs` depends on `@pierre/diffs@^1.6.4`. Host code that imports native types
-directly needs three mechanical changes:
+`stream-diffs` now depends on `@pierre/diffs@^1.7.1`. The controlled DOM API is source-compatible, but the upstream runtime has behavior changes worth planning for:
+
+- `Editor.edit()` now throws until the component is ready. `surface.startEditing()` handles `prepareForEditing()` for you; direct `stream-diffs/edit` users must check `isReadyToEdit()` and await `prepareForEditing()` first. `File` now exposes `prepareForEditing()` too.
+- `prepareForEditing()` waits for a worker-pool highlight that would otherwise be re-run on the main thread, so the first edit session starts from highlighted rows.
+- Long lines longer than `tokenizeMaxLineLength` (default `1000` characters) are cut and get a "Show full line" control instead of rendering the whole unhighlighted line. Set `tokenizeMaxLineLength: 0` to disable both the cut and the line-length highlight limit, or call `surface.expandLine()` to reveal one line. This is the largest visual behavior change for minified JSON or data URLs.
+- `preferredDiffLib: '@pierre/patches'` opts into the WASM diff engine. On a 2,000-line fixture it cut parse time from ~73 ms to ~12 ms (6.3x) with identical output; it remains opt-in because it adds a WASM asset and CSP requirements.
+- `i18n.set({ locale, messages })` localizes collapsed-context, search, and editing strings. Messages are ICU MessageFormat strings; omitted keys keep English defaults.
+- `deferHydrationHighlight: true` delays loading Shiki for hydrated prerendered HTML until a render actually needs it.
+- Editor `onChange`/`onEditChange` callbacks are synchronous document notifications. Do not call `edit`, `applyEdits`, `undo`, `redo`, `cleanUp`, or a component `render()` from inside them; defer with `queueMicrotask()`.
+- CodeView gained find/replace (`openSearch`, `closeSearch`, `navigateSearch`, `isSearchOpen`, `onSearchStateChange`) and `replaceSearchMatches()` on the editor. `stream-diffs` surfaces are standalone File/FileDiff, so CodeView-managed search is not part of this package.
+- Upstream flattened several component selectors and moved search styling to `::highlight(...)`. Host CSS overrides that targeted deep gutter or match-range selectors need to be rechecked.
+- A worker pool must come from the same `@pierre/diffs@^1.7` copy. A pool from an older copy is now rejected with a one-time warning and highlighting falls back to the main thread instead of failing mid-render.
+
+Host code that imports native types directly should also account for the accumulated API changes:
 
 - `FileOptions` and `FileDiffOptions` take a second `Caret` type parameter. Use
   `FileOptions<MyAnnotation, undefined>` / `FileDiffOptions<MyAnnotation, undefined>` unless
-  you attach an editor. `stream-diffs` itself has no editor surface, so it pins `undefined`.
+  you attach an editor with caret metadata. `stream-diffs` defaults that parameter to
+  `undefined` and accepts an explicit `Caret` on `createDiffSurface`/`DiffSurfaceController`.
 - `parsePatchFiles(patch, cacheKeyPrefix?, throwOnError?)` moved to
   `parsePatchFiles(patch, { cacheKeyPrefix, throwOnError, disableLineMatching })`.
+- 1.7 renderer results no longer expose `*GutterAST`, `*ContentAST`, `gutterAST`, `contentAST`,
+  or `css`. Use `renderer.renderCodeAST(...)`, `hastToHtml(...)`, and `columnCells(...)`.
+  `FileRenderer.renderPartialHTML` was removed.
+- `TextDocument.normalizeEol()` now returns `
+`-normalized text. Use `getText()` or
+  `getLineText(line, true)` for the original line endings.
 - The root entry no longer re-exports `codeToHtml`, `CodeToHastOptions`, `ThemeRegistration`,
   `ThemeRegistrationResolved`, `ShikiTransformer`, `BundledLanguage`, `LanguageRegistration`,
   or `ShikiStreamTokenizer*`. Import them from `shiki`/`@shiki/*`, or use
   `DiffsStreamTokenizer` and `FileStream`.
 
-Two upstream capabilities are worth opting into from the host:
+Additional upstream capabilities are worth opting into from the host:
 
+- `i18n` and the new model/layout/search utilities are re-exported from `stream-diffs/pierre`,
+  alongside `preloadHighlighter`, `getHighlighterIfLoaded`, and `isHighlighterLoaded`.
 - `preferredHighlighter: 'auto'` resolves once per page to the WASM `highlights` backend when
   the platform can run it, and to `shiki-js` when it cannot or when the backend fails to load.
   Pass an explicit `'shiki-js'`, `'shiki-wasm'`, or `'highlights'` to pin one. Only one backend
@@ -130,50 +159,59 @@ Two upstream capabilities are worth opting into from the host:
   per-surface; `resolvePreferredHighlighter()` reports what `auto` picked.
 - Worker pools accept `mainThreadMaxCharacters` (small files stay on the main thread and skip
   the worker round trip) and `onWorkerError` (report load failures instead of `console.error`).
+  Since 1.7 they also accept `preferredDiffLib` for inline word/character diffs. Keep the pool
+  on the same `@pierre/diffs` version as `stream-diffs`; an incompatible pool is ignored with a
+  warning so rendering falls back to the main thread.
 
 ## Editing a finalized surface
 
-`stream-diffs` stays read-only: it renders a stream, then hands the shell to one native
-`File`/`FileDiff`. Upstream `@pierre/diffs` has shipped an editor since 1.3, and this package
-re-exports it from `stream-diffs/edit` so the editor runs on the same `@pierre/diffs` copy the
-surfaces use. The highlighter registry is module-level, so a separately installed copy cannot
-share it.
+`stream-diffs` renders read-only by default, then hands the shell to one native
+`File`/`FileDiff`. Upstream `@pierre/diffs` owns the editor, and `surface.startEditing()` wraps
+its readiness rules so a host does not need to know them:
 
 ```ts
 import { createDiffSurface } from 'stream-diffs'
-import { Editor } from 'stream-diffs/edit'
 
 const surface = createDiffSurface({ kind: 'diff', oldFile, newFile })
 await surface.mount(container)
-await surface.prepareForEditing()
 
-const editor = new Editor('file-diff', {
+const editor = await surface.startEditing({
   onChange: event => save(event.file),
   onComplete: event => event.file.contents === saved ? 'reject' : 'accept',
 }, 'review-draft')
-const detach = editor.edit(surface.getNativeInstance()!)
+
+surface.applyEdits([{
+  range: { start: { line: 14, character: 0 }, end: { line: 14, character: 0 } },
+  newText: '  validate(input)\n',
+}])
+surface.undo()
+surface.redo()
+surface.focusEditor({ lineNumber: 14 })
+
+surface.stopEditing('complete')
 ```
 
-- `prepareForEditing()` hydrates a partial diff. A `kind: 'patch'` surface only becomes
-  editable when `options.loadDiffFiles` can supply both complete sides; `File` surfaces and
-  complete diffs resolve immediately.
-- The editor creates its document during its first render sync, so `getText()` and
-  `applyEdits()` are only meaningful after one render settles.
-- The third constructor argument (`editStateKey`) keeps a draft and its undo history in
-  memory so a later editor with the same key resumes it.
-- `edit()` returns a detach function. It throws for `merge-conflict` surfaces, which are not
-  editable, and for diffs that are still partial.
+- `startEditing()` hydrates a partial diff, waits for an in-flight worker-pool highlight, and resolves after the editor has attached to the first render sync. A
+  `kind: 'patch'` surface only becomes editable when `options.loadDiffFiles` can supply both
+  complete sides; `File` surfaces and complete diffs attach immediately.
+- Set `useTokenTransformer: true` when rendering a file or diff you know will be edited. Without
+  it, upstream re-highlights and re-renders the whole file when the session starts.
+- The third argument (`editStateKey`) keeps a draft and its undo/redo history in memory so a
+  later session with the same key resumes it.
+- `merge-conflict` surfaces are not editable; `startEditing()` throws.
 - Anything that replaces the native instance ends the session: `update()`, `setOptions()`,
-  `setTheme()`, `setThemeType()`, and `dispose()` all re-render. Re-attach after those calls,
-  or drive the editor from the host's own copy of the data.
-
-This entry is a pass-through. It is only loaded when imported, so it adds nothing to the eager
-runtime.
+  `setTheme()`, `acceptReject()`, and `dispose()` all re-render. Re-attach after those calls,
+  or drive the editor from the host's own copy of the data. `setThemeType()` and
+  `setAnnotations()` keep the live session.
+- `stream-diffs/edit` remains available for hosts that want to construct the upstream
+  `Editor` themselves. It re-exports the same `@pierre/diffs` copy, so the module-level
+  highlighter and edit-state registries are shared. It is a pass-through and adds nothing to
+  the eager runtime.
 
 ## Vue entry
 
-Import `StreamCode`, `StreamDiff`, and `StreamMergeConflict` from `stream-diffs/vue`. They expose `getController()` through the component ref. Their `options` and `annotations` props use the native generic Diffs types. Hot code deltas bypass Vue reactive rendering and write directly to the imperative controller.
+Import `StreamCode`, `StreamDiff`, and `StreamMergeConflict` from `stream-diffs/vue`. They expose `getController()` through the component ref. Their `options` and `annotations` props use the native generic Diffs types. Hot code deltas bypass Vue reactive rendering and write directly to the imperative controller. For editing, call `getController().getFinalizedSurface()?.startEditing(...)` after the component finalizes.
 
 ## markstream compatibility entry
 
-The `stream-diffs/markstream` entry exports `useMonaco`, `detectLanguage`, and `preloadMonacoWorkers` so markstream CodeBlock runtime loading can consume `stream-diffs` without changing its existing component contract. The root entry retains these aliases for existing integrations. Markstream keeps its own `<pre>` while content streams, then creates one final static File or FileDiff after the block is complete and visible. `whenVisualReady()` resolves only after the latest native render is stable; adapters must keep the fallback when it resolves `false`. Adapter content-size/layout events are backed by native Diffs render completion so Shadow DOM highlighting can trigger host height reconciliation. These names are compatibility APIs; they do not load Monaco.
+The `stream-diffs/markstream` entry exports `useMonaco`, `detectLanguage`, and `preloadMonacoWorkers` so markstream CodeBlock runtime loading can consume `stream-diffs` without changing its existing component contract. The root entry retains these aliases for existing integrations. The runtime also returns `getSurface()`, which exposes the finalized controller so markstream can forward editing, reveal, expansion, and scroll APIs to its `CodeBlockNode` ref. Markstream keeps its own `<pre>` while content streams, then creates one final static File or FileDiff after the block is complete and visible. `whenVisualReady()` resolves only after the latest native render is stable; adapters must keep the fallback when it resolves `false`. Adapter content-size/layout events are backed by native Diffs render completion so Shadow DOM highlighting can trigger host height reconciliation. These names are compatibility APIs; they do not load Monaco.

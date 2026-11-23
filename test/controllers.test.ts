@@ -357,7 +357,12 @@ describe('CodeStreamController', () => {
 
 describe('DiffSurfaceController', () => {
   it('supports split diffs, selection, annotations, and accept/reject', async () => {
-    const workerManager = { isWorkingPool: () => true } as any
+    const workerManager = {
+      isWorkingPool: () => true,
+      shouldHighlightOnMainThread: () => false,
+      setFileResultCache: () => {},
+      getPreferredHighlighter: () => 'shiki-js',
+    } as any
     const controller = createDiffSurface<{ body: string }>({
       kind: 'diff',
       oldFile: { name: 'file.ts', contents: 'old' },

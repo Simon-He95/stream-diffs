@@ -19,9 +19,10 @@ const budgets = {
   'pierre.mjs': 300,
   // Pass-through only; it must stay a re-export, never real editor code.
   'edit.mjs': 120,
-  // + the `auto` highlighter resolver (probe + memo); keep this from absorbing
-  // unrelated growth by raising it deliberately per feature.
-  [core]: 6_700,
+  // + the `auto` highlighter resolver (probe + memo) and the 1.7 editor
+  // lifecycle/search/reveal wrappers. Keep this from absorbing unrelated
+  // growth by raising it deliberately per feature.
+  [core]: 8_400,
 }
 
 for (const [file, maximum] of Object.entries(budgets)) {
@@ -33,10 +34,11 @@ for (const [file, maximum] of Object.entries(budgets)) {
 }
 
 const total = Object.values(sizes).reduce((sum, size) => sum + size, 0)
-// Covers `parsePatchOptions`, the `prepareForEditing` bridge, and the `auto`
-// highlighter resolver. tsdown output varies by ~150 gzip bytes between builds,
-// so keep a little slack and raise this deliberately per feature.
-if (total > 13_600)
-  throw new Error(`Total first-party runtime is ${total} gzip bytes; budget is 13600`)
+// Covers `parsePatchOptions`, the `prepareForEditing` bridge, the `auto`
+// highlighter resolver, and the 1.7 editing API. tsdown output varies by ~150
+// gzip bytes between builds, so keep a little slack and raise this deliberately
+// per feature.
+if (total > 15_400)
+  throw new Error(`Total first-party runtime is ${total} gzip bytes; budget is 15400`)
 
 console.log(`runtime gzip: ${total} bytes`, sizes)
