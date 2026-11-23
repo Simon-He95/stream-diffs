@@ -2,7 +2,7 @@ import type { DiffLineAnnotation, FileDiffOptions, FileOptions, LineAnnotation }
 import type { DiffSurfaceController } from './DiffSurfaceController'
 import type { CodeStreamOptions, CodeStreamState, CodeStreamStats, FinalizeOptions } from './types'
 import { createDiffSurface } from './DiffSurfaceController'
-import { createShell, fileContents, TextAccumulator } from './internal'
+import { compatibleWorkerManager, createShell, fileContents, TextAccumulator } from './internal'
 
 /**
  * Keeps streaming updates in one plain `<pre>`. Syntax highlighting is only
@@ -177,7 +177,7 @@ export class CodeStreamController {
           themeType: this.options.themeType,
           ...fileOptions,
         },
-        workerManager: workerManager ?? this.options.workerManager,
+        workerManager: compatibleWorkerManager(workerManager ?? this.options.workerManager),
       })
     }
     else {
@@ -198,7 +198,7 @@ export class CodeStreamController {
           themeType: this.options.themeType,
           ...diffOptions,
         },
-        workerManager: workerManager ?? this.options.workerManager,
+        workerManager: compatibleWorkerManager(workerManager ?? this.options.workerManager),
       })
     }
 

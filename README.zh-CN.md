@@ -1,6 +1,6 @@
 # stream-diffs
 
-面向 AI 输出的轻量、只读代码与 Diff 渲染库。底层使用 [`@pierre/diffs`](https://diffs.com/) 与 Shiki；流式阶段不创建 Monaco model 和 worker，结束后可切换为可交互的 File、Diff 或 Git 冲突解决界面。
+面向 AI 输出的轻量、流式代码与 Diff 渲染库，默认只读，可按需开启编辑。底层使用 [`@pierre/diffs`](https://diffs.com/) 与 Shiki；流式阶段不创建 Monaco model 和 worker，结束后可切换为可交互的 File、Diff 或 Git 冲突解决界面。
 
 ## 安装
 
@@ -191,15 +191,22 @@ import { StreamCode, StreamDiff, StreamMergeConflict } from 'stream-diffs/vue'
 import { parseDiffFromFile, parsePatchFiles } from 'stream-diffs/pierre'
 ```
 
-就地编辑是可选能力，同样通过独立入口暴露，并复用同一份 `@pierre/diffs`，避免 highlighter 注册表被拆成两份：
+就地编辑是可选能力，且按需加载：只有宿主真正开始编辑时才会加载 upstream editor：
 
 ```ts
-import { Editor } from 'stream-diffs/edit'
+const editor = await surface.startEditing({
+  onChange: event => save(event.file),
+  onComplete: event => event.file.contents === saved ? 'reject' : 'accept',
+}, 'review-draft')
 
-await surface.prepareForEditing()
-const editor = new Editor('file-diff', { onChange: event => save(event.file) })
-const detach = editor.edit(surface.getNativeInstance()!)
+surface.applyEdits(edits)
+surface.undo()
+surface.redo()
+surface.revealLine(42, 'additions')
+surface.stopEditing('complete')
 ```
+
+`startEditing()` 会自动等待 `prepareForEditing()`：partial patch 先完成 hydration，正在进行的 worker pool 高亮也会被复用，而不是回到主线程重跑。如果确定某个 surface 会被编辑，渲染时传 `useTokenTransformer: true`，upstream 就能复用已渲染行。需要自己管理会话时仍可从 `stream-diffs/edit` 使用原生 `Editor`；它复用同一份 `@pierre/diffs`，highlighter 与 edit-state 注册表不会被拆成两份。
 
 ## 设计边界
 
@@ -208,7 +215,7 @@ const detach = editor.edit(surface.getNativeInstance()!)
 - 流式阶段使用 `FileStream`，最终 Diff 基于完整 snapshot 计算，保证准确性。
 - 超长输出会继续以只追加纯文本显示，并仍可最终生成准确 File 或 Diff。
 - 不包含 Monaco model、补全、LSP 与诊断运行时。
-- cursor editing 与 undo/redo 由 `stream-diffs/edit` 提供；流式管线不持有它们，替换 native surface 会结束编辑会话。
+- cursor editing 与 undo/redo 由 `surface.startEditing()` / `stream-diffs/edit` 提供；流式管线不持有它们，替换 native surface 会结束编辑会话。
 - `@pierre/diffs` 在首次 mount 时动态加载，SSR import 安全。
 
 ## License

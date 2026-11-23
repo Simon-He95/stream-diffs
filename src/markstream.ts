@@ -1,5 +1,6 @@
 import type { FileContents } from '@pierre/diffs'
 import type { WorkerPoolManager } from '@pierre/diffs/worker'
+import type { DiffSurfaceController as DiffSurfaceControllerContract } from './types'
 import { CodeStreamController } from './CodeStreamController'
 import { DiffStreamController } from './DiffStreamController'
 import { createDiffSurface, DiffSurfaceController } from './DiffSurfaceController'
@@ -397,6 +398,7 @@ export function useMonaco(options: StreamDiffsRuntimeOptions = {}) {
     getEditor: () => EDITOR_NAMESPACE,
     getEditorView: () => editorAdapter ?? null,
     getDiffEditorView: () => diffAdapter ?? null,
+    getSurface: (): DiffSurfaceControllerContract<any, any> | null => surface ?? stream?.getFinalizedSurface() ?? diffStream?.getFinalizedSurface() ?? null,
     getDiffModels: () => ({
       original: createModel(() => original),
       modified: createModel(() => surface?.getResolvedFile()?.contents ?? diffStream?.getModified() ?? modified),

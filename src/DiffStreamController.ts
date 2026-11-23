@@ -2,7 +2,7 @@ import type { DiffLineAnnotation } from '@pierre/diffs'
 import type { DiffSurfaceController } from './DiffSurfaceController'
 import type { CodeStreamState, DiffStreamOptions } from './types'
 import { createDiffSurface } from './DiffSurfaceController'
-import { createShell, fileContents } from './internal'
+import { compatibleWorkerManager, createShell, fileContents } from './internal'
 
 /**
  * A low-cost diff placeholder. It never tokenizes while either side changes;
@@ -85,7 +85,7 @@ export class DiffStreamController<LAnnotation = unknown> {
       newFile: this.asFile(this.modified),
       annotations,
       options: { ...this.options, diffStyle: this.options.diffStyle ?? 'unified' },
-      workerManager: this.options.workerManager,
+      workerManager: compatibleWorkerManager(this.options.workerManager),
     })
     const staging = document.createElement('div')
     staging.className = 'stream-diffs-finalized'

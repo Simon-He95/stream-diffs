@@ -97,3 +97,102 @@ describe('stream-diffs/edit', () => {
     surface.dispose()
   }, 20_000)
 })
+
+describe('DiffSurfaceController editing API', () => {
+  beforeAll(() => {
+    Object.defineProperty(CSSStyleSheet.prototype, 'replaceSync', {
+      configurable: true,
+      value() {},
+    })
+    Object.defineProperty(ShadowRoot.prototype, 'adoptedStyleSheets', {
+      configurable: true,
+      get() { return [] },
+      set() {},
+    })
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
+    })
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+      configurable: true,
+      value() {
+        return {
+          font: '',
+          measureText: (text: string) => ({ width: text.length * 8 }),
+          fillText() {},
+        }
+      },
+    })
+    globalThis.ResizeObserver = class ResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as any
+  })
+
+  it('starts, edits, undoes, and stops an edit session through the controller', async () => {
+    const target = document.createElement('div')
+    document.body.appendChild(target)
+    const surface = createDiffSurface({
+      kind: 'file',
+      file: { name: 'answer.ts', contents: 'export const answer = 42\n', lang: 'typescript' },
+      options: { theme: 'pierre-dark' },
+    })
+    await surface.mount(target)
+
+    expect(surface.isReadyToEdit()).toBe(true)
+    expect(surface.isEditing()).toBe(false)
+    const changes: string[] = []
+    const editor = await surface.startEditing({
+      onChange: event => changes.push(event.file.name),
+    }, 'controller-draft')
+
+    expect(surface.isEditing()).toBe(true)
+    expect(surface.getEditor()).toBe(editor)
+    await vi.waitFor(() => {
+      expect(surface.getEditingText()).toContain('answer = 42')
+    }, { timeout: 5000 })
+
+    surface.applyEdits([{
+      range: { start: { line: 1, character: 25 }, end: { line: 1, character: 25 } },
+      newText: ' + 1',
+    }])
+    expect(surface.getEditingText()).toContain('+ 1')
+    expect(surface.canUndo()).toBe(true)
+    expect(changes.length).toBeGreaterThan(0)
+
+    surface.undo()
+    expect(surface.getEditingText()).not.toContain('+ 1')
+    expect(surface.canRedo()).toBe(true)
+    surface.redo()
+    expect(surface.getEditingText()).toContain('+ 1')
+    expect(surface.getEditingFile()?.contents).toContain('+ 1')
+
+    surface.stopEditing('complete')
+    expect(surface.isEditing()).toBe(false)
+    expect(surface.getEditor()).toBeUndefined()
+    surface.dispose()
+  }, 20_000)
+
+  it('keeps the live session for themeType and annotations but ends it when the instance is replaced', async () => {
+    const target = document.createElement('div')
+    document.body.appendChild(target)
+    const surface = createDiffSurface({
+      kind: 'file',
+      file: { name: 'answer.ts', contents: 'export const answer = 42\n', lang: 'typescript' },
+      options: { theme: 'pierre-dark' },
+    })
+    await surface.mount(target)
+    await surface.startEditing({}, 'replace-draft')
+
+    surface.setThemeType('light')
+    surface.setAnnotations([{ lineNumber: 1, metadata: 'note' }])
+    expect(surface.isEditing()).toBe(true)
+
+    await surface.setOptions({ theme: 'pierre-dark' })
+    expect(surface.isEditing()).toBe(false)
+    expect(surface.getEditor()).toBeUndefined()
+
+    surface.dispose()
+  }, 20_000)
+})

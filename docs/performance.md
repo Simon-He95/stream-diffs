@@ -6,18 +6,18 @@
 
 | Output | Current approximate gzip | Gate |
 | --- | ---: | ---: |
-| root API entry | 0.2 kB | 0.2 kB |
-| markstream compatibility entry | 4.9 kB | 5.0 kB |
-| shared stream/surface controller | 5.7 kB | 5.7 kB |
-| Vue entry | 1.5 kB | 1.5 kB |
-| synchronous Pierre utility entry | 0.2 kB | 0.3 kB |
-| all first-party runtime outputs | 12.5 kB | 12.5 kB |
+| root API entry | 0.23 kB | 0.26 kB |
+| markstream compatibility entry | 4.97 kB | 5.0 kB |
+| shared stream/surface controller | 8.09 kB | 8.4 kB |
+| Vue entry | 1.51 kB | 1.52 kB |
+| synchronous Pierre utility entry | 0.29 kB | 0.3 kB |
+| all first-party runtime outputs | 15.1 kB | 15.4 kB |
 
 These numbers exclude `@pierre/diffs`, Shiki grammars, themes, and an optional worker because those are upstream/runtime-selected dependencies. The root entry contains no eager static import of `@pierre/diffs`; renderer code loads on the first `mount()`.
 
 Application bundles still depend on selected languages, themes, highlighter engine, and bundler chunking. Measure the actual host build rather than treating this table as total application transfer size.
 
-`@pierre/diffs@1.2.12` currently declares `react` and `react-dom` as peers even when an application only imports its Vanilla entry. Some package managers may therefore install those peers. `stream-diffs` never imports the Pierre React entry, but it cannot remove an upstream package manifest requirement; installation size and browser runtime size should be evaluated separately.
+`@pierre/diffs@1.7.1` declares `react` and `react-dom` as optional peers even when an application only imports its Vanilla entry. Some package managers may still install them. `stream-diffs` never imports the Pierre React entry, but it cannot remove an upstream package manifest requirement; installation size and browser runtime size should be evaluated separately. The editor lifecycle, navigation, and runtime-surface wrappers add ~1.6 kB gzip to the shared controller; the editor implementation itself stays in a lazily imported `@pierre/diffs/edit` chunk and is not part of the size gate.
 
 ## Streaming path
 
@@ -110,5 +110,46 @@ Since `@pierre/diffs@1.6`, the pool also takes:
 
 - `mainThreadMaxCharacters`: files and diffs at or below this many characters highlight on the main thread instead of paying a worker round trip. Unset keeps the old behavior where every highlight uses a worker.
 - `workerInitializationTimeout` (default `10s`) and `onWorkerError`, which replaces the default `console.error` for worker load failures. A pool that fails to initialize still lets every surface fall back to main-thread highlighting.
+- `preferredDiffLib`: `'jsdiff'` (default) or `'@pierre/patches'` for the WASM diff engine used by inline word/character highlights.
+
+The injected pool must come from the same `@pierre/diffs@^1.7` copy. `stream-diffs` checks the 1.7 pool surface and ignores older managers with a one-time warning instead of crashing when 1.7 calls a method the old pool does not have.
 
 Surfaces accept `preferredHighlighter: 'auto'`, which uses the WASM `highlights` backend when `canUseWASM()` reports support and falls back to `shiki-js` otherwise (or when the backend fails to load). To keep worker and main-thread output identical, give the pool the same backend: `highlighterOptions.preferredHighlighter: 'highlights'`. One backend can be active per thread, so choose it before the first highlight and dispose existing highlighters before switching.
+
+
+## Measured `@pierre/diffs` 1.6.4 → 1.7.1 comparison
+
+Method: headless Chrome 1255 (macOS arm64), 1440×1000, isolated browser contexts with HTTP cache disabled, identical deterministic fixtures, and three repetitions. Each number is the median of three runs. The fixture uses a warm main-thread Shiki highlighter unless the scenario name says otherwise. These are synthetic first-party measurements, not upstream guarantees.
+
+| Scenario | 1.6.4 | 1.7.1 | Delta |
+| --- | ---: | ---: | ---: |
+| module import (cold) | 40.6 ms | 46.0 ms | +13.3% |
+| Shiki + theme + TS language (cold) | 30.4 ms | 30.8 ms | +1.3% |
+| append a new language | 3.9 ms | 4.1 ms | +5.1% |
+| append a new theme | 4.1 ms | 4.0 ms | -2.4% |
+| 2,000-line file, cold render | 626.2 ms | 659.3 ms | +5.3% |
+| 2,000-line file, warm render | 409.1 ms | 454.1 ms | +11.0% |
+| 10,000-line file, warm render | 2,156.6 ms | 2,270.5 ms | +5.3% |
+| 20× 300-line file renders | 1,492.1 ms | 1,512.5 ms | +1.4% |
+| 2,000-line split diff, warm render | 682.9 ms | 733.3 ms | +7.4% |
+| 2,000-line diff parse, jsdiff | 73.3 ms | 76.9 ms | +4.9% |
+| 2,000-line diff parse, `@pierre/patches` | n/a | 11.6 ms | 6.3× faster than jsdiff |
+| 2,000-line file update render | 410.8 ms | 467.2 ms | +13.7% |
+| worker pool init (2 workers) | 38.2 ms | 38.6 ms | +1.0% |
+| worker first theme switch (chunk load) | 5.8 ms | 4.5 ms | -22.4% |
+| worker cached theme switch | 0.4 ms | 0.4 ms | flat |
+| worker 2,000-line file render | 572.5 ms | 638.7 ms | +11.6% |
+| worker 2,000-line file CPU (`TaskDuration`) | 0.273 s | 0.341 s | +24.9% |
+| 5,000-character single line | 361.9 ms | 22.6 ms | 16× faster |
+
+Interpretation:
+
+- Language and theme loading is unchanged. Warm Shiki setup is dominated by Shiki itself, not by Diffs; 1.7.1 adds no measurable startup cost there.
+- The new shared row/layout renderer is not faster for a one-shot static full render in this harness. It is 1–14% slower depending on size and scenario, with the largest regression on a warm 2k-line re-render. DOM node counts are effectively identical (79,656 versus 79,639 for the 2k fixture).
+- The real 1.7 wins are elsewhere: long-line cutting avoids a 16× layout stall, `@pierre/patches` makes diff parsing ~6.3× faster, incremental editing patches rows instead of rebuilding the surface, and editor attach can reuse highlighted rows after `prepareForEditing()`.
+- Worker-pool initialization is flat, but worker rendering used ~25% more main-thread task time in this run while still moving tokenization off-thread. Keep `mainThreadMaxCharacters`/viewport deferral enabled when many blocks mount together.
+- Memory did not regress meaningfully; the 10k-line file used ~27 MB JS heap in 1.6.4 and ~44 MB in 1.7.1 in the sampled process, which includes the larger module graph and measured variance. Treat heap numbers as directional rather than a budget.
+
+### Reproducing long-line behavior
+
+The default `tokenizeMaxLineLength` is 1,000 characters. A 5,000-character line renders 1,005 characters plus a "Show full line" control in 1.7.1. Setting `tokenizeMaxLineLength: 0` restores the full 6,000-character render at ~1.68 s, close to the 1.6.4 uncut ~1.78 s. Keep the default for chat/data output; opt out only when a host needs full-line selection without an expand click.

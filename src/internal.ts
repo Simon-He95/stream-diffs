@@ -50,3 +50,34 @@ export function createShell(container: HTMLElement, maxHeight?: number | string)
 export function fileContents(name: string, contents: string, language?: string) {
   return { name, contents, lang: language }
 }
+
+const incompatibleWorkerManagers = new WeakSet<object>()
+
+/**
+ * `@pierre/diffs@1.7` calls worker-pool methods that older pools do not have
+ * (`shouldHighlightOnMainThread`, `setFileResultCache`, ...). A host that
+ * installs a second copy of Diffs and injects its pool used to crash mid-render;
+ * fall back to main-thread highlighting instead and explain how to fix it.
+ */
+export function compatibleWorkerManager<T extends object>(workerManager: T | undefined): T | undefined {
+  if (!workerManager)
+    return undefined
+
+  const candidate = workerManager as Record<string, unknown>
+  const compatible = typeof candidate.isWorkingPool === 'function'
+    && typeof candidate.shouldHighlightOnMainThread === 'function'
+    && typeof candidate.setFileResultCache === 'function'
+    && typeof candidate.getPreferredHighlighter === 'function'
+  if (compatible)
+    return workerManager
+
+  if (!incompatibleWorkerManagers.has(workerManager)) {
+    incompatibleWorkerManagers.add(workerManager)
+    console.warn(
+      '[stream-diffs] Ignoring an incompatible @pierre/diffs WorkerPoolManager. '
+      + 'Create the pool from the same @pierre/diffs@^1.7 copy stream-diffs uses, '
+      + 'or highlighting falls back to the main thread.',
+    )
+  }
+  return undefined
+}
