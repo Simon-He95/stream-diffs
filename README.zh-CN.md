@@ -206,7 +206,7 @@ surface.revealLine(42, 'additions')
 surface.stopEditing('complete')
 ```
 
-`startEditing()` 会自动等待 `prepareForEditing()`：partial patch 先完成 hydration，正在进行的 worker pool 高亮也会被复用，而不是回到主线程重跑。如果确定某个 surface 会被编辑，渲染时传 `useTokenTransformer: true`，upstream 就能复用已渲染行。需要自己管理会话时仍可从 `stream-diffs/edit` 使用原生 `Editor`；它复用同一份 `@pierre/diffs`，highlighter 与 edit-state 注册表不会被拆成两份。
+`startEditing()` 会自动等待 `prepareForEditing()` 以及 editor 首次完成 attach 的 render sync：partial patch 先完成 hydration，正在进行的 worker pool 高亮会被复用而不是回到主线程重跑，返回后即可直接 `applyEdits()`。如果确定某个 surface 会被编辑，渲染时传 `useTokenTransformer: true`，upstream 就能复用已渲染行。需要自己管理会话时仍可从 `stream-diffs/edit` 使用原生 `Editor`；它复用同一份 `@pierre/diffs`，highlighter 与 edit-state 注册表不会被拆成两份。
 
 ## 设计边界
 

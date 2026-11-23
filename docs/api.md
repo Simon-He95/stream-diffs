@@ -98,7 +98,7 @@ Every File, Diff, Patch, and Merge input accepts `workerManager?: WorkerPoolMana
 - `onDidRender(listener)` observes initial and subsequent native render completion, including asynchronous highlighting updates. It returns a disposable subscription.
 - `whenVisualReady()` waits for the latest native post-render commit, including a render that supersedes the one originally awaited. It resolves `true` after that commit and `false` if the surface is disposed before it becomes ready or no visual render exists.
 - `isReadyToEdit()` reports whether an editor can attach immediately. Since `@pierre/diffs@1.7`, `prepareForEditing()` also awaits an in-flight worker-pool highlight.
-- `startEditing(options?, editStateKey?)`, `stopEditing(reason?)`, and `isEditing()` own an upstream edit session. The editor chunk loads lazily the first time editing starts; read-only hosts never download it. `startEditing()` resolves after `prepareForEditing()`, so callers do not need to await it separately.
+- `startEditing(options?, editStateKey?)`, `stopEditing(reason?)`, and `isEditing()` own an upstream edit session. The editor chunk loads lazily the first time editing starts; read-only hosts never download it. `startEditing()` resolves after `prepareForEditing()` and the editor's first render sync attaches it, so `getEditingText()` and `applyEdits()` are usable immediately.
 - `getEditor()`, `getEditingFile()`, `getEditingText()`, `canUndo()`, `canRedo()`, `undo()`, `redo()`, and `applyEdits()` forward the active editor document and history.
 - `focusEditor()`, `blurEditor()`, `getEditorViewState()`, `setEditorViewState()`, and `setEditorSelections()` forward view state and selection APIs.
 - `revealLine(line, side?)`, `expandLine(target)`, `expandHunk(index, direction, override?)`, `setEditorActiveLine(line, options?)`, `getNearestRenderableLine()`, and `isLineInCollapsedContext()` expose the 1.7 navigation and collapsed-context APIs.
@@ -191,7 +191,7 @@ surface.focusEditor({ lineNumber: 14 })
 surface.stopEditing('complete')
 ```
 
-- `startEditing()` hydrates a partial diff and waits for an in-flight worker-pool highlight. A
+- `startEditing()` hydrates a partial diff, waits for an in-flight worker-pool highlight, and resolves after the editor has attached to the first render sync. A
   `kind: 'patch'` surface only becomes editable when `options.loadDiffFiles` can supply both
   complete sides; `File` surfaces and complete diffs attach immediately.
 - Set `useTokenTransformer: true` when rendering a file or diff you know will be edited. Without

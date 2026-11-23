@@ -149,9 +149,7 @@ describe('DiffSurfaceController editing API', () => {
 
     expect(surface.isEditing()).toBe(true)
     expect(surface.getEditor()).toBe(editor)
-    await vi.waitFor(() => {
-      expect(surface.getEditingText()).toContain('answer = 42')
-    }, { timeout: 5000 })
+    expect(surface.getEditingText()).toContain('answer = 42')
 
     surface.applyEdits([{
       range: { start: { line: 1, character: 25 }, end: { line: 1, character: 25 } },
@@ -193,6 +191,76 @@ describe('DiffSurfaceController editing API', () => {
     expect(surface.isEditing()).toBe(false)
     expect(surface.getEditor()).toBeUndefined()
 
+    surface.dispose()
+  }, 20_000)
+})
+
+describe('DiffSurfaceController patch editing', () => {
+  beforeAll(() => {
+    Object.defineProperty(CSSStyleSheet.prototype, 'replaceSync', {
+      configurable: true,
+      value() {},
+    })
+    Object.defineProperty(ShadowRoot.prototype, 'adoptedStyleSheets', {
+      configurable: true,
+      get() { return [] },
+      set() {},
+    })
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
+    })
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+      configurable: true,
+      value() {
+        return {
+          font: '',
+          measureText: (text: string) => ({ width: text.length * 8 }),
+          fillText() {},
+        }
+      },
+    })
+    globalThis.ResizeObserver = class ResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as any
+  })
+
+  it('hydrates a patch through loadDiffFiles before attaching an editor', async () => {
+    const target = document.createElement('div')
+    document.body.appendChild(target)
+    const surface = createDiffSurface({
+      kind: 'patch',
+      patch: [
+        'diff --git a/answer.ts b/answer.ts',
+        '--- a/answer.ts',
+        '+++ b/answer.ts',
+        '@@ -1 +1 @@',
+        '-export const answer = 0',
+        '+export const answer = 42',
+        '',
+      ].join('\n'),
+      options: {
+        diffStyle: 'unified',
+        loadDiffFiles: async () => ({
+          oldFile: { name: 'answer.ts', contents: 'export const answer = 0\n', lang: 'typescript' },
+          newFile: { name: 'answer.ts', contents: 'export const answer = 42\n', lang: 'typescript' },
+        }),
+      },
+    })
+    await surface.mount(target)
+    await surface.startEditing({}, 'patch-draft')
+
+    expect(surface.isEditing()).toBe(true)
+    expect(surface.getEditingText()).toContain('answer = 42')
+    surface.applyEdits([{
+      range: { start: { line: 1, character: 25 }, end: { line: 1, character: 25 } },
+      newText: ' + 1',
+    }])
+    expect(surface.getEditingText()).toContain('+ 1')
+
+    surface.stopEditing('discard')
     surface.dispose()
   }, 20_000)
 })

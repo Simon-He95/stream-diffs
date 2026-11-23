@@ -307,8 +307,9 @@ surface.revealLine(42, 'additions')
 surface.stopEditing('complete')
 ```
 
-`startEditing()` waits for `prepareForEditing()`, so partial patches hydrate first and an
-in-flight worker-pool highlight is reused instead of re-run on the main thread. Set
+`startEditing()` waits for `prepareForEditing()` and the editor's first attached render sync, so
+partial patches hydrate first, an in-flight worker-pool highlight is reused instead of re-run on
+the main thread, and `applyEdits()` is immediately usable. Set
 `useTokenTransformer: true` on surfaces you know will be edited to let upstream reuse the
 rendered rows. The raw `Editor` is still available from `stream-diffs/edit` for hosts that
 want to own the session directly; it re-exports the same `@pierre/diffs` copy so the

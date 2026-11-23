@@ -236,9 +236,9 @@ export class DiffSurfaceController<LAnnotation = unknown, Caret = undefined> imp
    * Attaches the upstream editor to this surface and returns it. The editor
    * code is loaded lazily, so read-only hosts never pay for it.
    *
-   * Resolves only after `prepareForEditing()`, which is what upstream requires
-   * before `Editor.edit()` in vanilla integrations. Calling it again while a
-   * session is active returns the same editor.
+   * Resolves only after `prepareForEditing()` and the editor's first render
+   * sync has attached it, so `getEditingText()`/`applyEdits()` are immediately
+   * usable. Calling it again while a session is active returns the same editor.
    */
   async startEditing(options: DiffSurfaceEditorOptions<LAnnotation, Caret> = {}, editStateKey?: string) {
     if (this.disposed)
@@ -258,17 +258,54 @@ export class DiffSurfaceController<LAnnotation = unknown, Caret = undefined> imp
       const instance = this.instance
       if (!instance)
         throw new Error('Mount the surface before starting an edit session')
-      if (this.input.kind !== 'file' && this.input.kind !== 'diff')
+      if (this.input.kind !== 'file' && !isDiffInput(this.input))
         throw new Error('Only file and diff surfaces are editable')
 
       const { Editor } = await import('@pierre/diffs/edit')
       const type = this.input.kind === 'file' ? 'file' : 'file-diff'
-      const editor = new Editor(type, options as any, editStateKey) as DiffSurfaceEditor<LAnnotation, Caret>
+
+      let resolveAttached!: () => void
+      let rejectAttached!: (error: Error) => void
+      const attached = new Promise<void>((resolve, reject) => {
+        resolveAttached = resolve
+        rejectAttached = reject
+      })
+      const attachTimeout = setTimeout(() => {
+        rejectAttached(new Error('The editor did not attach to the surface in time'))
+      }, 10_000)
+      const userOnAttach = options.onAttach
+      const editorOptions = {
+        ...options,
+        onAttach(editor: unknown, fileInstance: unknown) {
+          try {
+            userOnAttach?.(editor as never, fileInstance as never)
+          }
+          finally {
+            resolveAttached()
+          }
+        },
+      }
+      const editor = new Editor(type, editorOptions as any, editStateKey) as DiffSurfaceEditor<LAnnotation, Caret>
+      if (this.disposed || generation !== this.editingGeneration || instance !== this.instance) {
+        clearTimeout(attachTimeout)
+        editor.cleanUp('discard')
+        throw new Error('The surface was replaced before the editor attached')
+      }
+      let detach: () => void
+      try {
+        detach = (editor.edit as (target: unknown) => () => void)(instance)
+        await attached
+      }
+      catch (error) {
+        clearTimeout(attachTimeout)
+        editor.cleanUp('discard')
+        throw error
+      }
+      clearTimeout(attachTimeout)
       if (this.disposed || generation !== this.editingGeneration || instance !== this.instance) {
         editor.cleanUp('discard')
         throw new Error('The surface was replaced before the editor attached')
       }
-      const detach = (editor.edit as (target: unknown) => () => void)(instance)
       this.editingSession = { editor, detach }
       return editor
     })().finally(() => {
