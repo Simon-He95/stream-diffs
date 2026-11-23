@@ -12,6 +12,7 @@ import type {
   LineExpansion,
   SelectedLineRange,
   SelectionSide,
+  SelectionWriteOptions,
   UnresolvedFileOptions,
   UnresolvedFile,
 } from '@pierre/diffs'
@@ -118,9 +119,9 @@ export class DiffSurfaceController<LAnnotation = unknown, Caret = undefined> imp
     })
   }
 
-  setSelectedLines(range: SelectedLineRange | null) {
+  setSelectedLines(range: SelectedLineRange | null, options?: SelectionWriteOptions) {
     this.selectedLines = range
-    this.instance?.setSelectedLines(range)
+    this.instance?.setSelectedLines(range, options)
   }
 
   setAnnotations(annotations: LineAnnotation<LAnnotation>[] | DiffLineAnnotation<LAnnotation>[]) {

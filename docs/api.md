@@ -86,7 +86,7 @@ Every File, Diff, Patch, and Merge input accepts `workerManager?: WorkerPoolMana
 
 - `mount(container)` and `dispose()` own the DOM lifecycle.
 - `update(input)`, `updateFile()`, `updateDiff()`, `updateParsedDiff()`, `updatePatch()`, and `updateMergeConflict()` replace render data.
-- `setSelectedLines(range)` sets or clears a controlled selection.
+- `setSelectedLines(range, options?)` sets or clears a controlled selection; `options` forwards upstream's `SelectionWriteOptions` (`notify`, `activeLineSide`, `lineNumberOnly`).
 - `setAnnotations(annotations)` updates comments without recreating the controller.
 - `setThemeType(type)`, `setTheme(theme)`, and `setOptions(options)` update appearance and native Diffs options without discarding accepted/rejected state.
 - `acceptReject(hunkIndex, action)` transforms the current diff and rerenders it.

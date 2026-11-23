@@ -15,6 +15,7 @@ import type {
   ParsePatchOptions,
   SelectedLineRange,
   SelectionSide,
+  SelectionWriteOptions,
   ThemeTypes,
   UnresolvedFileOptions,
   UnresolvedFile,
@@ -52,6 +53,7 @@ export type {
   ParsePatchOptions,
   SelectedLineRange,
   SelectionSide,
+  SelectionWriteOptions,
   ThemeTypes,
   TokenEventBase,
   UnresolvedFileOptions,
@@ -214,7 +216,7 @@ export interface DiffSurfaceController<LAnnotation = unknown, Caret = undefined>
   updateParsedDiff(fileDiff: FileDiffMetadata, annotations?: DiffLineAnnotation<LAnnotation>[]): Promise<void>
   updatePatch(patch: string, fileIndex?: number, annotations?: DiffLineAnnotation<LAnnotation>[], patchIndex?: number): Promise<void>
   updateMergeConflict(file: FileContents, annotations?: DiffLineAnnotation<LAnnotation>[]): Promise<void>
-  setSelectedLines(range: SelectedLineRange | null): void
+  setSelectedLines(range: SelectedLineRange | null, options?: SelectionWriteOptions): void
   setAnnotations(annotations: LineAnnotation<LAnnotation>[] | DiffLineAnnotation<LAnnotation>[]): void
   setThemeType(themeType: ThemeTypes): void
   setTheme(theme: FileOptions<LAnnotation, Caret>['theme']): Promise<void>
@@ -250,6 +252,7 @@ export interface DiffSurfaceController<LAnnotation = unknown, Caret = undefined>
   blurEditor(): void
   getEditorViewState(): EditorViewState | undefined
   setEditorViewState(state: EditorViewState): void
+  /** `direction` uses upstream's string form; `getEditorViewState()` returns numeric `EditorSelection` directions. */
   setEditorSelections(selections: (Range & { direction: 'none' | 'backward' | 'forward' })[]): void
 
   revealLine(lineNumber: number, side?: SelectionSide): boolean
