@@ -55,7 +55,7 @@
     "release:publish": "pnpm build && pnpm publish --no-git-checks"
   },
   "dependencies": {
-    "@pierre/diffs": "^1.7.1"
+    "@pierre/diffs": "^1.7.2"
   },
   "peerDependencies": {
     "vue": "^3.3.0"
