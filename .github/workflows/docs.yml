@@ -44,6 +44,9 @@ jobs:
         env:
           SKIP_INSTALL_SIMPLE_GIT_HOOKS: 1
 
+      - name: Build package
+        run: pnpm build
+
       - name: Build site
         run: pnpm docs:build
 
