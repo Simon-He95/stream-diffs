@@ -106,6 +106,8 @@ export interface CodeStreamOptions extends Omit<FileStreamOptions, 'lang' | 'onS
   language?: string
   lineNumbers?: boolean
   wrap?: boolean
+  /** Render the filename header while streaming. Defaults to true and aligns with the final file header. */
+  showHeader?: boolean
   maxHeight?: number | string
   autoScroll?: 'always' | 'near-bottom' | 'never'
   autoScrollThresholdPx?: number
@@ -125,6 +127,7 @@ export interface DiffStreamOptions<LAnnotation = unknown> extends Omit<FileDiffO
   diffStyle?: 'unified' | 'split'
   lineNumbers?: boolean
   wrap?: boolean
+  showHeader?: boolean
   maxHeight?: number | string
   autoScroll?: 'always' | 'near-bottom' | 'never'
   autoScrollThresholdPx?: number

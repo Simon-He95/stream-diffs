@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>stream-diffs social preview</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 1280px; height: 640px; margin: 0; overflow: hidden; }
+    body {
+      --bg: #08090c;
+      --panel: #0e1117;
+      --line: #232a36;
+      --text: #eef2f7;
+      --muted: #98a2b3;
+      --faint: #6d7788;
+      --accent: #b9f26e;
+      background:
+        linear-gradient(180deg, rgba(185, 242, 110, .055), transparent 55%),
+        var(--bg);
+      color: var(--text);
+      font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Geist', sans-serif;
+      display: grid;
+      grid-template-columns: minmax(0, 1.02fr) minmax(0, .98fr);
+      gap: 56px;
+      align-items: center;
+      padding: 58px 68px;
+      letter-spacing: -.02em;
+    }
+    .left { min-width: 0; }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; }
+    .brand svg { width: 34px; height: 34px; }
+    .brand span { font-size: 19px; font-weight: 640; letter-spacing: -.03em; }
+    h1 { margin: 0; font-size: 62px; line-height: .96; letter-spacing: -.06em; font-weight: 650; }
+    h1 em { font-style: normal; color: var(--accent); }
+    .lede { max-width: 470px; margin: 22px 0 0; color: var(--muted); font-size: 19px; line-height: 1.5; letter-spacing: -.02em; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
+    .chip { padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .chip.strong { border-color: color-mix(in srgb, var(--accent) 34%, var(--line)); color: var(--accent); }
+    .url { margin-top: 30px; color: var(--faint); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .right {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: #0a0d12;
+      overflow: hidden;
+      box-shadow: 0 28px 90px rgba(0, 0, 0, .5);
+    }
+    .bar { display: flex; align-items: center; justify-content: space-between; height: 46px; padding: 0 14px; border-bottom: 1px solid var(--line); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: #aab4c4; }
+    .bar .file { display: flex; gap: 8px; align-items: center; }
+    .bar .file b { color: var(--accent); font-weight: 700; }
+    .bar .state { color: var(--faint); }
+    .code { padding: 12px 0 14px; font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.72; }
+    .row { display: grid; grid-template-columns: 38px 1fr; gap: 8px; padding: 0 12px; white-space: pre; }
+    .row .n { color: #566070; text-align: right; }
+    .row.ctx { color: #c3ccd9; }
+    .row.add { background: rgba(63, 185, 80, .13); color: #a6e8ad; }
+    .row.del { background: rgba(248, 81, 73, .12); color: #ffb3ae; }
+    .row .tok { color: #c9a8ff; }
+    .row .str { color: #a9d98c; }
+    .row .fn { color: #8ec6ff; }
+    .row .num { color: #f0b86e; }
+    .row .plus { color: #72d6a2; }
+    .row .minus { color: #ff8b7e; }
+    .footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 18px; padding: 10px 14px 12px; border-top: 1px solid var(--line); color: var(--faint); font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <div class="left">
+    <div class="brand">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+        <rect x="1" y="1" width="30" height="30" rx="8" fill="#0c0f14" stroke="#2a3140" stroke-width="1.5"/>
+        <path d="M8.5 10.5 13.5 16 8.5 21.5" fill="none" stroke="#b9f26e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M17 12.5h7" stroke="#8c96a8" stroke-width="2" stroke-linecap="round"/>
+        <path d="M17 19.5h4" stroke="#8c96a8" stroke-width="2" stroke-linecap="round"/>
+        <path d="M24 19.5h.5" stroke="#b9f26e" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>
+      <span>stream-diffs</span>
+    </div>
+    <h1>Render the stream.<br><em>Land the diff.</em></h1>
+    <p class="lede">Streaming code and review-ready diffs for AI output. No Monaco, editable on demand.</p>
+    <div class="chips">
+      <span class="chip strong">pnpm add stream-diffs</span>
+      <span class="chip">Shiki</span>
+      <span class="chip">@pierre/diffs</span>
+      <span class="chip">MIT</span>
+    </div>
+    <div class="url">stream-diffs.pages.dev</div>
+  </div>
+
+  <div class="right">
+    <div class="bar">
+      <span class="file"><b>&gt;</b><span>src/billing/categorizeCharge.ts</span></span>
+      <span class="state">-1&nbsp;&nbsp;+7</span>
+    </div>
+    <div class="code">
+      <div class="row add"><span class="n">1</span><span><span class="tok">export type</span> <span class="fn">Band</span> = <span class="str">'refund'</span> | <span class="str">'standard'</span> | <span class="str">'large'</span> | <span class="str">'review'</span></span></div>
+      <div class="row add"><span class="n">2</span><span></span></div>
+      <div class="row ctx"><span class="n">3</span><span><span class="tok">export function</span> <span class="fn">categorizeCharge</span>(amount: <span class="num">number</span>): <span class="fn">Band</span> {</span></div>
+      <div class="row add"><span class="n">4</span><span>  <span class="tok">if</span> (!Number.isFinite(amount))</span></div>
+      <div class="row del"><span class="n">5</span><span>  <span class="tok">if</span> (amount &lt; <span class="num">0</span>)</span></div>
+      <div class="row add"><span class="n">6</span><span>    <span class="tok">throw new</span> <span class="fn">TypeError</span>(<span class="str">'amount must be a finite number'</span>)</span></div>
+      <div class="row ctx"><span class="n">7</span><span>  <span class="tok">if</span> (amount &lt; <span class="num">0</span>)</span></div>
+      <div class="row add"><span class="n">8</span><span>    <span class="tok">return</span> <span class="str">'refund'</span></span></div>
+      <div class="row add"><span class="n">9</span><span>  <span class="tok">if</span> (amount &gt; <span class="num">5_000</span>)</span></div>
+      <div class="row add"><span class="n">10</span><span>    <span class="tok">return</span> <span class="str">'review'</span></span></div>
+      <div class="row ctx"><span class="n">11</span><span>  <span class="tok">return</span> amount &gt; <span class="num">500</span> ? <span class="str">'large'</span> : <span class="str">'standard'</span></span></div>
+      <div class="row ctx"><span class="n">12</span><span>}</span></div>
+    </div>
+    <div class="footer"><span>plain text while streaming</span><span>highlighted at finalize</span></div>
+  </div>
+</body>
+</html>

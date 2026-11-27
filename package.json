@@ -2,13 +2,37 @@
   "name": "stream-diffs",
   "type": "module",
   "version": "0.0.6",
-  "description": "Lightweight, stream-native code and diff rendering for AI output, powered by @pierre/diffs and Shiki.",
+  "description": "Stream-native syntax highlighting and review-ready diffs for AI output. No Monaco, no workers, with opt-in inline editing. Powered by @pierre/diffs and Shiki.",
+  "keywords": [
+    "streaming",
+    "diff",
+    "syntax-highlighting",
+    "code-highlighting",
+    "shiki",
+    "pierre",
+    "ai",
+    "llm",
+    "markdown",
+    "code-review",
+    "inline-editing",
+    "vue",
+    "typescript"
+  ],
   "author": "Simon He",
   "license": "MIT",
-  "homepage": "https://github.com/Simon-He95/stream-diffs#readme",
+  "homepage": "https://stream-diffs.pages.dev/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Simon-He95/stream-diffs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Simon-He95/stream-diffs/issues"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "sideEffects": false,
   "exports": {
@@ -37,7 +61,9 @@
   "types": "./dist/index.d.mts",
   "files": [
     "dist",
-    "docs",
+    "docs/api.md",
+    "docs/performance.md",
+    "docs/markstream-vue.md",
     "README.md",
     "README.zh-CN.md"
   ],
@@ -50,9 +76,17 @@
     "benchmark": "vitest bench --run benchmarks/streaming.bench.ts",
     "typecheck": "tsc --noEmit",
     "size:check": "node scripts/check-size.mjs",
-    "release:verify": "pnpm typecheck && pnpm test && pnpm build && pnpm size:check && pnpm example:build && node scripts/check-package.mjs",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:build:cf": "DOCS_BASE=/ pnpm docs:build",
+    "docs:preview": "vitepress preview docs",
+    "release:verify": "pnpm typecheck && pnpm test && pnpm build && pnpm size:check && pnpm example:build && pnpm docs:build && node scripts/check-package.mjs",
     "release": "bumpp --execute \"pnpm release:publish\"",
-    "release:publish": "pnpm build && pnpm publish --no-git-checks"
+    "release:publish": "pnpm build && pnpm publish --no-git-checks",
+    "prepare": "simple-git-hooks"
+  },
+  "simple-git-hooks": {
+    "commit-msg": "pnpm exec commitlint --edit \"$1\""
   },
   "dependencies": {
     "@pierre/diffs": "^1.7.2"
@@ -66,12 +100,19 @@
     }
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@shikijs/vitepress-twoslash": "4.6.0",
     "@types/node": "^24.13.3",
     "bumpp": "^11.1.0",
     "jsdom": "^26.1.0",
+    "simple-git-hooks": "^2.14.0",
     "tsdown": "^0.22.7",
     "typescript": "^5.9.3",
     "vite": "^7.3.5",
+    "vitepress": "^1.6.4",
     "vitest": "^3.2.7",
     "vue": "^3.5.39"
   },

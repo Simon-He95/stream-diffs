@@ -6,27 +6,27 @@
 
 | Output | Current approximate gzip | Gate |
 | --- | ---: | ---: |
-| root API entry | 0.23 kB | 0.26 kB |
-| markstream compatibility entry | 4.97 kB | 5.0 kB |
-| shared stream/surface controller | 8.09 kB | 8.4 kB |
+| root API entry | 0.24 kB | 0.26 kB |
+| markstream compatibility entry | 4.98 kB | 5.0 kB |
+| shared stream/surface controller | 10.2 kB | 10.5 kB |
 | Vue entry | 1.51 kB | 1.52 kB |
 | synchronous Pierre utility entry | 0.29 kB | 0.3 kB |
-| all first-party runtime outputs | 15.1 kB | 15.4 kB |
+| all first-party runtime outputs | 17.3 kB | 17.6 kB |
 
 These numbers exclude `@pierre/diffs`, Shiki grammars, themes, and an optional worker because those are upstream/runtime-selected dependencies. The root entry contains no eager static import of `@pierre/diffs`; renderer code loads on the first `mount()`.
 
 Application bundles still depend on selected languages, themes, highlighter engine, and bundler chunking. Measure the actual host build rather than treating this table as total application transfer size.
 
-`@pierre/diffs@1.7.1` declares `react` and `react-dom` as optional peers even when an application only imports its Vanilla entry. Some package managers may still install them. `stream-diffs` never imports the Pierre React entry, but it cannot remove an upstream package manifest requirement; installation size and browser runtime size should be evaluated separately. The editor lifecycle, navigation, and runtime-surface wrappers add ~1.6 kB gzip to the shared controller; the editor implementation itself stays in a lazily imported `@pierre/diffs/edit` chunk and is not part of the size gate.
+`@pierre/diffs@1.7.2` declares `react` and `react-dom` as optional peers even when an application only imports its Vanilla entry. Some package managers may still install them. `stream-diffs` never imports the Pierre React entry, but it cannot remove an upstream package manifest requirement; installation size and browser runtime size should be evaluated separately. The shared controller now also carries the stable-handoff stream shell (header, gutter, and final metrics). The editor implementation itself stays in a lazily imported `@pierre/diffs/edit` chunk and is not part of the size gate.
 
 ## Streaming path
 
 - Deltas append to a chunk accumulator rather than repeatedly concatenating the complete source.
-- High-frequency deltas are coalesced by RAF or a configured interval.
+- High-frequency deltas are coalesced by RAF or a configured interval. The streaming view is plain text; tokenization happens once at finalization.
+- The plain shell reserves the final file header, dynamic line-number gutter, 13px / 20px metrics, and 1ch insets. A file finalize is a text-for-text swap at the same coordinates; a diff finalize changes to hunks by design.
 - Writes are serialized through one promise chain.
 - A trailing high surrogate is held until the matching chunk arrives.
 - The viewport follows only when it is already near the bottom.
-- At 10,000 lines or 1,000,000 characters by default, the growing highlighted DOM is aborted and streaming continues in append-only plain text.
 - Final File/Diff rendering always uses the complete accumulated snapshot.
 
 Run `pnpm benchmark` for the repeatable accumulator benchmarks covering 10,000 micro-deltas and 1 MiB of chunked text. Renderer correctness and batching remain in the normal test suite because DOM/highlighter timing varies substantially by browser and machine.
@@ -67,7 +67,7 @@ pnpm test:e2e:code-renderer-streaming
 
 ## Readiness, fallback, and height stability
 
-`stream-diffs` does not start Monaco workers or create Monaco models. Its renderer module and the shared Shiki highlighter still initialize asynchronously on the first cold mount, so a host should keep its `<pre>` fallback until the first Diffs surface is ready. In the benchmark above that cold fallback lasted 72.4 ms at the median, compared with 913.0 ms for Monaco. `preloadStreamDiffs()` (and the compatibility name `preloadMonacoWorkers()`) can start loading the renderer chunk earlier, but neither function starts a worker.
+`stream-diffs` does not start Monaco workers or create Monaco models. Its renderer module and the shared Shiki highlighter still initialize asynchronously on the first cold mount, so a host should keep its `<pre>` fallback until the first Diffs surface is ready. In the benchmark above that cold fallback lasted 72.4 ms at the median, compared with 913.0 ms for Monaco. The `preloadStreamDiffs()` and compatibility `preloadMonacoWorkers()` exports currently resolve without warming the renderer. Import the package early or accept the first-mount cost if cold-start latency matters.
 
 After initialization, Pierre reuses its module-level highlighter and deduplicates language resolution. Concurrent code blocks therefore share those resources rather than creating one worker or highlighter per thread.
 
@@ -109,7 +109,7 @@ The upstream Worker Pool API is experimental. Its render options control worker-
 Since `@pierre/diffs@1.6`, the pool also takes:
 
 - `mainThreadMaxCharacters`: files and diffs at or below this many characters highlight on the main thread instead of paying a worker round trip. Unset keeps the old behavior where every highlight uses a worker.
-- `workerInitializationTimeout` (default `10s`) and `onWorkerError`, which replaces the default `console.error` for worker load failures. A pool that fails to initialize still lets every surface fall back to main-thread highlighting.
+- `workerInitializationTimeout` (default `5000` ms) and `onWorkerError`, which replaces the default `console.error` for worker load failures. A pool that fails to initialize still lets every surface fall back to main-thread highlighting.
 - `preferredDiffLib`: `'jsdiff'` (default) or `'@pierre/patches'` for the WASM diff engine used by inline word/character highlights.
 
 The injected pool must come from the same `@pierre/diffs@^1.7` copy. `stream-diffs` checks the 1.7 pool surface and ignores older managers with a one-time warning instead of crashing when 1.7 calls a method the old pool does not have.
@@ -145,7 +145,7 @@ Method: headless Chrome 1255 (macOS arm64), 1440×1000, isolated browser context
 Interpretation:
 
 - Language and theme loading is unchanged. Warm Shiki setup is dominated by Shiki itself, not by Diffs; 1.7.1 adds no measurable startup cost there.
-- The new shared row/layout renderer is not faster for a one-shot static full render in this harness. It is 1–14% slower depending on size and scenario, with the largest regression on a warm 2k-line re-render. DOM node counts are effectively identical (79,656 versus 79,639 for the 2k fixture).
+- The new shared row/layout renderer is not faster for a one-shot static full render in this harness. It is 1-14% slower depending on size and scenario, with the largest regression on a warm 2k-line re-render. DOM node counts are effectively identical (79,656 versus 79,639 for the 2k fixture).
 - The real 1.7 wins are elsewhere: long-line cutting avoids a 16× layout stall, `@pierre/patches` makes diff parsing ~6.3× faster, incremental editing patches rows instead of rebuilding the surface, and editor attach can reuse highlighted rows after `prepareForEditing()`.
 - Worker-pool initialization is flat, but worker rendering used ~25% more main-thread task time in this run while still moving tokenization off-thread. Keep `mainThreadMaxCharacters`/viewport deferral enabled when many blocks mount together.
 - Memory did not regress meaningfully; the 10k-line file used ~27 MB JS heap in 1.6.4 and ~44 MB in 1.7.1 in the sampled process, which includes the larger module graph and measured variance. Treat heap numbers as directional rather than a budget.

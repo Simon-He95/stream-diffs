@@ -1,61 +1,87 @@
+---
+title: markstream-vue integration
+description: Use stream-diffs as the optional code renderer inside markstream-vue without changing CodeBlockNode usage.
+---
+
 # markstream-vue integration
 
-## Integration status
+`markstream-vue` can use `stream-diffs` as its enhanced code renderer. Existing `CodeBlockNode` usage does not change: install both packages and markstream prefers the lightweight renderer.
 
-The root `stream-diffs` entry and `stream-diffs/markstream` both export `useMonaco`, `detectLanguage`, and `preloadMonacoWorkers`. Existing markstream adapters can keep selecting the root entry without importing Monaco.
+```bash
+pnpm add markstream-vue stream-diffs
+```
+
+```vue
+<script setup lang="ts">
+import { MarkdownRender } from 'markstream-vue'
+import 'markstream-vue/index.css'
+</script>
+
+<template>
+  <MarkdownRender :content="markdown" :loading="streaming" />
+</template>
+```
 
 ## Resolution order
 
-The CodeBlock loader attempts:
+The markstream CodeBlock loader tries:
 
 1. `import('stream-diffs')`
 2. `import('stream-monaco')`
-3. the built-in basic `<pre>` fallback
+3. the built-in `<pre>` fallback
 
-This keeps both enhanced runtimes optional and makes `stream-diffs` the automatic lightweight choice when installed.
+Both enhanced runtimes stay optional. When both are installed, `stream-diffs` wins. Remove it if you explicitly want `stream-monaco`.
+
+The root `stream-diffs` entry and `stream-diffs/markstream` both export `useMonaco`, `detectLanguage`, and `preloadMonacoWorkers`. Those names keep the existing adapter contract; they do not load Monaco.
 
 ## Runtime mapping
 
 | markstream operation | stream-diffs behavior |
 | --- | --- |
-| streaming or offscreen block | markstream-owned `<pre>`; runtime not mounted |
+| streaming or offscreen block | markstream-owned `<pre>`; no runtime mounted |
 | completed visible single file | one static interactive `File` |
 | completed visible side-by-side diff | one static split `FileDiff` |
 | completed visible inline diff | one static unified `FileDiff` |
 | complete Git conflict markers | `UnresolvedFile` |
-| theme update | `setThemeType` or rerender with the requested Shiki theme |
+| theme update | `setThemeType` or a rerender with the requested Shiki theme |
 | cleanup | dispose the current Diffs instance and cancel pending readiness |
 
-When `loading` changes to `false` and the block is visible, markstream creates a runtime with `stream: false` in the hidden editor layer. The `<pre>` stays visible until creation and `whenVisualReady()` finish. Markstream then switches the two layers in one component update. A stale creation cannot replace the fallback after unmount, collapse, or code-block identity change.
-
-The existing `monacoOptions` property is retained because changing it would break markstream users. Diffs-native options can be placed in that object because `CodeBlockMonacoOptions` has an extension index.
-
-The compatibility runtime removes only markstream/Monaco host fields such as `MAX_HEIGHT`, `wordWrap`, and `renderSideBySide`; every other option is forwarded to Pierre. This avoids a fixed allowlist that would drop current or future native APIs.
+While `loading` is true, markstream keeps its own `<pre>`. When the block is complete and visible, markstream creates one static Fast surface in a hidden staging layer, waits for `whenVisualReady()`, then swaps the layers in one component update. A stale creation cannot replace the fallback after unmount, collapse, or a code-block identity change.
 
 ## Advanced options
 
-```ts
-const codeBlockProps = {
-  monacoOptions: {
-    diffStyle: 'split',
-    diffIndicators: 'bars',
-    lineDiffType: 'word-alt',
-    enableLineSelection: true,
-    lineHoverHighlight: 'both',
-    onLineSelected(range) {},
-    onTokenEnter(token, event) {},
-    onTokenLeave(token, event) {},
-    lineAnnotations: comments,
-    renderAnnotation(annotation) {},
-    renderCustomHeader(fileOrDiff) {},
-    mergeConflictActionsType: 'default',
-    onMergeConflictResolve(file, payload) {},
-    onController(controller) {},
-  },
-}
+Diffs options pass through `code-block-props.monacoOptions`. The property keeps its historical name for compatibility.
+
+```vue
+<MarkdownRender
+  :content="markdown"
+  :loading="streaming"
+  :code-block-props="{
+    monacoOptions: {
+      diffStyle: 'split',
+      diffIndicators: 'bars',
+      lineDiffType: 'word-alt',
+      enableLineSelection: true,
+      lineHoverHighlight: 'both',
+      onLineSelected(range) {},
+      onTokenEnter(token, event) {},
+      onTokenLeave(token, event) {},
+      lineAnnotations: comments,
+      renderAnnotation(annotation) {},
+      renderCustomHeader(fileOrDiff) {},
+      mergeConflictActionsType: 'default',
+      onMergeConflictResolve(file, payload) {},
+      onController(controller) {},
+    },
+  }"
+/>
 ```
 
-Use `onController` when an application needs imperative actions:
+The compatibility runtime removes only markstream and Monaco host fields such as `MAX_HEIGHT`, `wordWrap`, and `renderSideBySide`. Every other option is forwarded to Pierre. This avoids a fixed allowlist that would silently drop newer native options.
+
+## Imperative actions
+
+Use `onController` to keep the surface for review actions:
 
 ```ts
 let controller
@@ -69,18 +95,45 @@ const options = {
 controller.setSelectedLines({ start: 10, end: 16, side: 'additions' })
 controller.acceptReject(0, 'accept')
 controller.resolveConflict(0, 'both')
+controller.startEditing({ onChange: saveDraft }, 'markdown-review')
 ```
+
+For editing, wait until the block has finalized:
+
+```ts
+const surface = controller?.getFinalizedSurface?.() ?? controller
+await surface?.startEditing({ onChange: saveDraft }, 'block-42')
+```
+
+`StreamCode` and `markstream` share the same underlying final surface controller, so editing, reveal, expansion, and scroll helpers are available after finalization.
 
 ## Behavioral notes
 
-- During token streaming, the hot path stays in markstream's `<pre>`; line selection and token hooks become available on the final File/FileDiff surface.
-- Final diffs are recomputed from the complete original and modified contents. The library does not claim token-level incremental diff correctness.
-- If both enhanced packages are installed, `stream-diffs` wins. Remove it to explicitly use `stream-monaco`.
+- The hot path stays in markstream's `<pre>` while tokens stream. Line selection and token hooks appear on the final File or FileDiff.
+- Final diffs are recomputed from complete original and modified contents. The library does not claim token-level incremental diff correctness.
 - `mergeConflict: false` disables automatic conflict marker detection.
 - `stream: false` forces the static file surface.
+- If `stream-diffs` is removed, markstream falls back to `stream-monaco` when installed, then the plain `<pre>`.
+- The final surface is created after the block is complete and visible. Offscreen blocks do not pay for highlighting.
 
-## Playground selection and benchmark
+## Performance
 
-The markstream-vue playground's main Test page can switch between Stream Diffs, Monaco, Shiki, and the plain pre renderer. The selection resets the optional-runtime cache, so Stream Diffs and Monaco can be compared in the same session without changing installed dependencies.
+The markstream-vue playground includes a repeatable browser benchmark at `/code-renderer-benchmark`. On the recorded Chrome run, stream-diffs reached a visible code surface 92% sooner than stream-monaco and used 92% fewer renderer DOM nodes at rest.
 
-`/code-renderer-benchmark` provides the repeatable streaming and multi-thread benchmark. Run `pnpm test:e2e:code-renderer-streaming` in markstream-vue for the asserted Chrome test, or use the page controls to change renderer, thread count, line count, chunk size, and delay. See [Performance and package size](./performance.md#browser-streaming-benchmark) for the recorded medians and resource-readiness conclusions.
+The numbers, methodology, and reproduction commands are in [Performance and package size](./performance.md#browser-streaming-benchmark).
+
+## Exposed compatibility API
+
+`stream-diffs` exports these names for markstream hosts:
+
+- `useMonaco(options)`
+- `detectLanguage(fileName)`
+- `preloadMonacoWorkers()`
+
+The runtime also returns `getSurface()`, which exposes the finalized controller. Treat these as compatibility APIs. They are supported because adapters depend on them, not because `stream-diffs` is a Monaco runtime.
+
+## Continue
+
+- [Vue components](./guide/vue)
+- [Inline editing](./guide/editing)
+- [Performance](./performance.md)

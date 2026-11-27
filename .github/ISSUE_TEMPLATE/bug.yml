@@ -1,0 +1,60 @@
+name: Bug report
+description: Report a rendering, streaming, editing, or packaging problem.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please include a minimal reproduction. A CodeSandbox, StackBlitz, or small repository is much faster to triage than a description.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: Describe the actual behavior and the impact.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Code, a link, or exact steps.
+      render: ts
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: stream-diffs version
+      placeholder: 0.0.6
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser, OS, bundler, framework, and @pierre/diffs version.
+      placeholder: Chrome 150, macOS, Vite 7, Vue 3.5
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output or screenshots
+      description: Remove tokens and private data before pasting.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues.
+          required: true
+        - label: I can reproduce this with the latest published version.
+          required: true

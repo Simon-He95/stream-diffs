@@ -1,6 +1,28 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Simon-He95/stream-diffs/main/docs/public/social-preview.png" alt="stream-diffs: render the stream, land the diff" width="100%">
+</p>
+
 # stream-diffs
 
-Lightweight, stream-native code and diff rendering for AI output, read-only by default with opt-in editing. `stream-diffs` is powered by [`@pierre/diffs`](https://diffs.com/) and Shiki, streams appended code without Monaco models or workers, and switches to interactive file or diff surfaces when needed.
+[![npm version](https://img.shields.io/npm/v/stream-diffs?style=flat-square&color=b9f26e&label=npm)](https://www.npmjs.com/package/stream-diffs)
+[![npm downloads](https://img.shields.io/npm/dm/stream-diffs?style=flat-square&color=b9f26e)](https://www.npmjs.com/package/stream-diffs)
+[![CI](https://github.com/Simon-He95/stream-diffs/actions/workflows/ci.yml/badge.svg)](https://github.com/Simon-He95/stream-diffs/actions/workflows/ci.yml)
+[![docs](https://img.shields.io/badge/docs-live-b9f26e?style=flat-square)](https://stream-diffs.pages.dev/)
+[![MIT license](https://img.shields.io/badge/license-MIT-b9f26e?style=flat-square)](https://github.com/Simon-He95/stream-diffs/blob/main/LICENSE)
+
+Stream-native syntax highlighting and review-ready diffs for AI output. Plain text while the answer arrives, one accurate highlight when it lands, and an optional inline editor when you need one. Powered by [`@pierre/diffs`](https://diffs.com) and Shiki. No Monaco model. No worker required.
+
+[Live playground](https://stream-diffs.pages.dev/playground.html) | [Documentation](https://stream-diffs.pages.dev/) | [API reference](https://stream-diffs.pages.dev/api.html) | [Examples](https://stream-diffs.pages.dev/examples.html)
+
+## Why stream-diffs
+
+AI chat does not need a full code editor on every message. It needs a fast streaming path and a good review surface at the end.
+
+- **Stream cheaply.** Deltas land in one plain `<pre>` with batching and viewport follow. No text model, no tokenization per chunk, no layout thrash.
+- **Highlight once.** Finalization renders the complete snapshot with Shiki. Diffs are computed from complete text, so word-level highlights are accurate. The plain stream already uses the final file metrics, header, and gutter, so a file highlight lands without moving the code. Diff finalization switches to hunks by design.
+- **Review for real.** Unified and split layouts, annotations, token hover, controlled selection, accept and reject, merge conflicts.
+- **Edit on demand.** `startEditing()` loads the upstream editor chunk lazily, restores drafts, and keeps undo and redo inside the surface.
+- **Stay small.** The root entry is framework-free, SSR-safe, and imports no renderer until `mount()`. First-party runtime is about 17.3 kB gzip.
 
 ## Install
 
@@ -8,13 +30,17 @@ Lightweight, stream-native code and diff rendering for AI output, read-only by d
 pnpm add stream-diffs
 ```
 
-For Vue components:
+```bash
+npm install stream-diffs
+```
+
+Vue components are optional:
 
 ```bash
 pnpm add stream-diffs vue
 ```
 
-## Streaming code
+## Quick start
 
 ```ts
 import { createCodeStream } from 'stream-diffs'
@@ -23,244 +49,82 @@ const output = createCodeStream({
   fileName: 'answer.ts',
   language: 'typescript',
   theme: { dark: 'github-dark', light: 'github-light' },
-  maxHeight: 600,
+  maxHeight: 520,
   lineNumbers: true,
   autoScroll: 'near-bottom',
 })
 
-await output.mount(document.querySelector('#code')!)
-output.append('export const ')
-output.append('answer = 42\n')
-await output.finalize({ view: 'file' })
-```
+await output.mount(document.querySelector('#output')!)
 
-Live highlighting is protected by default at 10,000 lines or 1,000,000 characters. Crossing either threshold aborts the growing highlighted DOM, keeps accumulating text, and continues with append-only plain text. Finalization still produces the accurate interactive File or Diff:
+for await (const delta of modelStream)
+  output.append(delta)
 
-```ts
-const output = createCodeStream({
-  limits: {
-    maxStreamingLines: 20_000,
-    maxStreamingChars: 2_000_000,
-    overflowBehavior: 'stop-highlighting',
-  },
-  onOverflow: stats => console.warn('Highlighting stopped', stats),
-})
-```
-
-These are `stream-diffs` safety defaults, not upstream Diffs limits. Use `limits: false` when the host already enforces output bounds.
-
-`append()` is the primary hot path. Cumulative SDK snapshots are also supported:
-
-```ts
-output.updateSnapshot('export')
-output.updateSnapshot('export const')
-output.updateSnapshot('export const answer = 42')
-```
-
-You can consume browser streams and async iterables directly:
-
-```ts
-await output.consume(response.body!)
 await output.finalize({
   view: 'diff',
   original: previousSource,
   diffStyle: 'split',
+  enableLineSelection: true,
 })
 ```
 
-## File, unified diff, and split diff
+The streaming view is intentionally plain text. Highlighting starts at `finalize()`, where one accurate render is worth the cost. Cumulative SDK snapshots are supported too:
+
+```ts
+output.updateSnapshot('export const ')
+output.updateSnapshot('export const answer = 42')
+```
+
+## Review a static diff
 
 ```ts
 import { createDiffSurface } from 'stream-diffs'
 
-const diff = createDiffSurface({
+const review = createDiffSurface({
   kind: 'diff',
-  oldFile: { name: 'src/app.ts', contents: before },
-  newFile: { name: 'src/app.ts', contents: after },
+  oldFile: { name: 'src/cart.ts', contents: before, lang: 'typescript' },
+  newFile: { name: 'src/cart.ts', contents: after, lang: 'typescript' },
+  annotations: [{
+    side: 'additions',
+    lineNumber: 14,
+    metadata: { author: 'Mina', body: 'Validate this input.' },
+  }],
   options: {
-    diffStyle: 'unified', // one column
-    // diffStyle: 'split', // two columns
+    diffStyle: 'unified', // or 'split'
     diffIndicators: 'bars',
     lineDiffType: 'word-alt',
     enableLineSelection: true,
-  },
-})
-
-await diff.mount(document.querySelector('#diff')!)
-diff.setSelectedLines({ start: 8, end: 12, side: 'additions' })
-```
-
-Use `kind: 'file'` for a static code file and `kind: 'merge-conflict'` for Git conflict markers.
-
-Raw Git patches and pre-parsed metadata are accepted without eagerly loading Pierre from the root entry:
-
-```ts
-const patchView = createDiffSurface({
-  kind: 'patch',
-  patch: unifiedPatch,
-  fileIndex: 0,
-  options: { diffStyle: 'unified' },
-})
-```
-
-## markstream-vue
-
-`markstream-vue` dynamically prefers `stream-diffs` when it is installed. Existing `CodeBlockNode` usage does not change:
-
-```bash
-pnpm add markstream-vue stream-diffs
-```
-
-```vue
-<script setup lang="ts">
-import { MarkdownRender } from 'markstream-vue'
-import 'markstream-vue/index.css'
-</script>
-
-<template>
-  <MarkdownRender :content="markdown" :loading="streaming" />
-</template>
-```
-
-Advanced Diffs options pass through `code-block-props.monacoOptions`. The property keeps its existing name for compatibility:
-
-```vue
-<MarkdownRender
-  :content="markdown"
-  :code-block-props="{
-    monacoOptions: {
-      diffStyle: 'split',
-      enableLineSelection: true,
-      onLineSelected: range => console.log(range),
-      onTokenEnter: ({ tokenText, tokenElement }) => {
-        tokenElement.dataset.hovered = tokenText
-      },
-      onController: controller => codeController = controller,
-    },
-  }"
-/>
-```
-
-While loading, markstream keeps its own `<pre>` and does not create a Diffs controller. After the block is complete and visible, it creates one static File or FileDiff with `stream: false`, waits for the first stable visual frame, and atomically replaces the fallback. Complete Git conflict markers use the merge conflict resolution UI. If both optional renderers are installed, `stream-diffs` wins; remove it to select `stream-monaco` explicitly.
-
-The first cold mount still initializes the shared Shiki highlighter asynchronously, so markstream keeps its `<pre>` fallback until the Diffs surface is ready. No Monaco worker or model is created. On the measured Chrome benchmark, the median cold fallback was 72.4 ms for stream-diffs versus 913.0 ms for stream-monaco; 1-, 12-, and 24-thread runs had no measured container-height decrease. See [Performance and package size](./docs/performance.md#browser-streaming-benchmark) for methodology and reproducible commands.
-
-## Framework adapters
-
-The root `stream-diffs` entry is an imperative DOM runtime and imports no framework. React, Svelte, Angular, Vue, and vanilla applications use the same controllers. The optional `stream-diffs/vue` entry only provides Vue component wrappers.
-
-For streamed Markdown, the framework adapter owns completion and visibility. Keep the framework's `<pre>` mounted while the block is incomplete or outside the viewport, then mount one final snapshot when both conditions are true:
-
-```ts
-if (codeBlockComplete && codeBlockVisible) {
-  const runtime = useMonaco({ stream: false, disableFileHeader: true })
-  await runtime.createEditor(stagingElement, finalCode, language)
-  if (await runtime.whenVisualReady?.())
-    fallbackElement.replaceWith(stagingElement)
-}
-```
-
-Build the highlighted surface in a staging element and replace the fallback only after creation and visual readiness resolve. This keeps React effects, Svelte actions, Angular hooks, and Vue lifecycle code outside the runtime while preserving a single pre-to-highlight transition. Dispose the runtime when the host component unmounts, collapses, or changes code-block identity.
-
-## Interactive review APIs
-
-### Custom headers
-
-```ts
-const review = createDiffSurface({
-  kind: 'diff',
-  oldFile,
-  newFile,
-  options: {
-    renderCustomHeader(fileDiff) {
-      const header = document.createElement('div')
-      header.textContent = `Review ${fileDiff.name}`
-      return header
-    },
-  },
-})
-```
-
-### Token hover
-
-```ts
-const file = createDiffSurface({
-  kind: 'file',
-  file: { name: 'styles.css', contents: css },
-  options: {
-    onTokenEnter({ tokenText, lineNumber, tokenElement }) {
-      showHover({ tokenText, lineNumber, anchor: tokenElement })
-    },
-    onTokenLeave() {
-      hideHover()
-    },
-  },
-})
-```
-
-Token hooks add token metadata to the DOM and should only be enabled when needed.
-
-### Comments and annotations
-
-```ts
-type Comment = { author: string, body: string }
-
-const review = createDiffSurface<Comment>({
-  kind: 'diff',
-  oldFile,
-  newFile,
-  annotations: [
-    { side: 'additions', lineNumber: 14, metadata: { author: 'You', body: 'Validate this input.' } },
-  ],
-  options: {
     renderAnnotation(annotation) {
-      const el = document.createElement('article')
-      el.textContent = `${annotation.metadata.author}: ${annotation.metadata.body}`
-      return el
+      const node = document.createElement('div')
+      node.textContent = annotation.metadata.body
+      return node
     },
   },
 })
 
-review.setAnnotations(nextComments)
-```
-
-### Accept or reject changes
-
-```ts
+await review.mount(document.querySelector('#review')!)
 review.acceptReject(0, 'accept')
-review.acceptReject(1, 'reject')
-review.acceptReject(2, { type: 'accept', changeIndex: 0 })
-```
-
-Each call returns the next `FileDiffMetadata` and rerenders the surface. This is a metadata transformation; persisting or applying the resulting file is controlled by your application.
-
-```ts
 const resolved = review.getResolvedFile()
-await save(resolved?.contents)
-
-// Escape hatch for any upstream API not wrapped by stream-diffs.
-const nativeFileDiff = review.getNativeInstance()
 ```
 
-### Merge conflicts
+Inputs: `file`, `diff`, `patch`, and `merge-conflict`. Options, annotations, token hooks, custom headers, and worker pools use the same controller.
+
+## Inline editing
+
+Read-only by default. Start a session when the user asks for it:
 
 ```ts
-const merge = createDiffSurface({
-  kind: 'merge-conflict',
-  file: { name: 'src/app.ts', contents: conflictedSource },
-  options: {
-    mergeConflictActionsType: 'default',
-    onMergeConflictResolve(file, payload) {
-      save(file.contents, payload.resolution)
-    },
-  },
-})
+const editor = await surface.startEditing({
+  onChange: event => queueSave(event.file),
+  onComplete: event => event.file.contents === saved ? 'reject' : 'accept',
+}, 'review-draft')
 
-await merge.mount(container)
-const resolvedFile = merge.resolveConflict(0, 'incoming')
+surface.applyEdits(edits)
+surface.undo()
+surface.redo()
+surface.stopEditing('complete')
 ```
 
-`UnresolvedFile`, merge resolution, and token hooks are experimental in the current underlying Diffs release. `stream-diffs` exposes them without hiding that status.
+The editor chunk loads only on the first session. `startEditing()` waits for hydration and the first attached render, so `applyEdits()` is immediately usable.
 
 ## Vue
 
@@ -270,60 +134,92 @@ import { StreamCode, StreamDiff, StreamMergeConflict } from 'stream-diffs/vue'
 </script>
 
 <template>
-  <StreamCode :code="generated" language="typescript" :loading="streaming" />
-  <StreamDiff
-    :original="before"
-    :modified="after"
-    language="typescript"
-    diff-style="split"
-  />
-  <StreamMergeConflict :code="conflictedSource" language="typescript" />
+  <StreamCode :code="answer" language="typescript" :loading="streaming" />
+  <StreamDiff :original="before" :modified="after" diff-style="split" />
+  <StreamMergeConflict :code="conflicted" language="typescript" />
 </template>
 ```
 
-See [API reference](./docs/api.md), [performance and package size](./docs/performance.md), [markstream-vue integration](./docs/markstream-vue.md), and the [Chinese guide](./README.zh-CN.md).
+`StreamCode` and `StreamDiff` keep streaming until `loading` is false and the block is visible, then finalize to one interactive surface. Every component exposes `getController()` through its ref.
 
-Run the real-browser capability lab with `pnpm example`. It exercises unified/split review, annotations, token hover, selection, accept/reject, merge actions, and the streaming-to-file transition on one page.
+## markstream-vue
 
-Low-level synchronous Pierre utilities use a separate entry so the root package stays lazy:
+`markstream-vue` automatically prefers `stream-diffs` when it is installed. Existing `MarkdownRender` and `CodeBlockNode` usage does not change:
 
-```ts
-import { parseDiffFromFile, parsePatchFiles } from 'stream-diffs/pierre'
+```bash
+pnpm add markstream-vue stream-diffs
 ```
 
-In-place editing is opt-in and lazy: the upstream editor chunk is only imported when a host
-starts a session:
-
-```ts
-const editor = await surface.startEditing({
-  onChange: event => save(event.file),
-  onComplete: event => event.file.contents === saved ? 'reject' : 'accept',
-}, 'review-draft')
-
-surface.applyEdits(edits)
-surface.undo()
-surface.redo()
-surface.revealLine(42, 'additions')
-surface.stopEditing('complete')
+```vue
+<MarkdownRender :content="markdown" :loading="streaming" />
 ```
 
-`startEditing()` waits for `prepareForEditing()` and the editor's first attached render sync, so
-partial patches hydrate first, an in-flight worker-pool highlight is reused instead of re-run on
-the main thread, and `applyEdits()` is immediately usable. Set
-`useTokenTransformer: true` on surfaces you know will be edited to let upstream reuse the
-rendered rows. The raw `Editor` is still available from `stream-diffs/edit` for hosts that
-want to own the session directly; it re-exports the same `@pierre/diffs` copy so the
-highlighter and edit-state registries stay shared.
+If both optional runtimes are installed, `stream-diffs` wins. Remove it to select `stream-monaco`.
+
+## Try it live
+
+The [playground](https://stream-diffs.pages.dev/playground.html) runs the public controller API:
+
+- Edit both sources and watch the diff update.
+- Switch unified and split layouts.
+- Toggle annotations, token hover, and line selection.
+- Start an inline edit session on the rendered diff.
+- Resolve merge conflicts.
+- Stream a file and finalize it to a diff or file.
+
+![stream-diffs playground](https://raw.githubusercontent.com/Simon-He95/stream-diffs/main/docs/public/playground.png)
+
+Run the local lab with:
+
+```bash
+pnpm install
+pnpm example
+```
+
+## Performance
+
+From the recorded Chrome benchmark in markstream-vue (Chrome 150, 1440x1000, three repetitions):
+
+| Metric | stream-diffs | stream-monaco |
+| --- | ---: | ---: |
+| median cold fallback visible | 72.4 ms | 913.0 ms |
+| renderer DOM nodes | 31 | 405 |
+| frame p95 | 10.2 ms | 16.6 ms |
+
+Read the [methodology and all scenarios](https://stream-diffs.pages.dev/performance.html). These are machine-specific measurements, not fixed guarantees.
+
+## Documentation
+
+- [Introduction](https://stream-diffs.pages.dev/guide/introduction.html)
+- [Quickstart](https://stream-diffs.pages.dev/guide/getting-started.html)
+- [Streaming code](https://stream-diffs.pages.dev/guide/streaming.html)
+- [Diffs and review](https://stream-diffs.pages.dev/guide/diffs.html)
+- [Merge conflicts](https://stream-diffs.pages.dev/guide/merge-conflicts.html)
+- [Inline editing](https://stream-diffs.pages.dev/guide/editing.html)
+- [Vue](https://stream-diffs.pages.dev/guide/vue.html)
+- [markstream-vue](https://stream-diffs.pages.dev/markstream-vue.html)
+- [Framework recipes](https://stream-diffs.pages.dev/guide/recipes.html)
+- [Troubleshooting](https://stream-diffs.pages.dev/guide/troubleshooting.html)
+- [API reference](https://stream-diffs.pages.dev/api.html)
+- [Type reference](https://stream-diffs.pages.dev/types.html)
+- [中文说明](https://github.com/Simon-He95/stream-diffs/blob/main/README.zh-CN.md)
 
 ## Design constraints
 
 - Read-only and append-only while streaming.
 - Delta append is faster than cumulative snapshots.
-- Streaming uses `FileStream`; accurate diffs are generated from the final snapshot.
-- Oversized streams continue in append-only plain text and can still finalize to an accurate File or Diff.
+- Streaming uses plain text; accurate diffs are generated from the final snapshot.
 - No Monaco text model, completion, LSP, or diagnostics runtime.
-- Cursor editing and undo belong to `surface.startEditing()` / `stream-diffs/edit`; the streaming pipeline never owns them, and replacing the native surface ends the session.
-- `@pierre/diffs` is loaded on first mount, so importing `stream-diffs` remains SSR-safe.
+- Cursor editing and undo belong to `surface.startEditing()` or `stream-diffs/edit`.
+- `@pierre/diffs` loads on first mount, so importing `stream-diffs` remains SSR-safe.
+
+## Contributing
+
+Issues and PRs are welcome. See [CONTRIBUTING.md](https://github.com/Simon-He95/stream-diffs/blob/main/CONTRIBUTING.md) for setup, tests, the commit convention, and the release flow.
+
+```bash
+pnpm typecheck && pnpm test && pnpm build && pnpm docs:build
+```
 
 ## License
 

@@ -178,12 +178,26 @@ export class DiffSurfaceController<LAnnotation = unknown, Caret = undefined> imp
   resolveConflict(conflictIndex: number, resolution: 'current' | 'incoming' | 'both') {
     if (this.input.kind !== 'merge-conflict')
       throw new Error('resolveConflict() requires a merge-conflict view')
-    const result = (this.instance as UnresolvedFile<LAnnotation>).resolveConflict(conflictIndex, resolution)
-    if (result) {
-      this.input.file = result.file
-      this.diff = result.fileDiff
+    const unresolved = this.instance as UnresolvedFile<LAnnotation>
+    const result = unresolved.resolveConflict(conflictIndex, resolution)
+    if (!result)
+      return undefined
+
+    this.input.file = result.file
+    this.diff = result.fileDiff
+
+    // `resolveConflict()` computes the next state without rendering it. The
+    // native `resolveConflictAndRender()` keeps the uncontrolled action and
+    // marker caches in sync, so the surface does not go stale after a
+    // programmatic resolution.
+    const render = (unresolved as unknown as {
+      resolveConflictAndRender?: (index: number, next: 'current' | 'incoming' | 'both') => void
+    }).resolveConflictAndRender
+    if (typeof render === 'function') {
+      render.call(unresolved, conflictIndex, resolution)
+      this.emitRender()
     }
-    return result?.file
+    return result.file
   }
 
   getResolvedFile() {

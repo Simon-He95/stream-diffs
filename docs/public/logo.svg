@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-label="stream-diffs">
+  <rect x="1" y="1" width="30" height="30" rx="8" fill="#0c0f14" stroke="#2a3140" stroke-width="1.5"/>
+  <path d="M8.5 10.5 13.5 16 8.5 21.5" fill="none" stroke="#b9f26e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M17 12.5h7" stroke="#8c96a8" stroke-width="2" stroke-linecap="round"/>
+  <path d="M17 19.5h4" stroke="#8c96a8" stroke-width="2" stroke-linecap="round"/>
+  <path d="M24 19.5h.5" stroke="#b9f26e" stroke-width="2.4" stroke-linecap="round"/>
+</svg>

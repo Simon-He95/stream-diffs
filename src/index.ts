@@ -1,7 +1,7 @@
 export { CodeStreamController, createCodeStream } from './CodeStreamController'
 export { DiffStreamController, createDiffStream } from './DiffStreamController'
 export { createDiffSurface, DiffSurfaceController } from './DiffSurfaceController'
-export { detectLanguage, preloadMonacoWorkers, useMonaco } from './markstream'
+export { detectLanguage, preloadMonacoWorkers, preloadStreamDiffs, useMonaco } from './markstream'
 export { resolvePreferredHighlighter } from './preferredHighlighter'
 export type { PreferredHighlighterContext, PreferredHighlighterOption } from './preferredHighlighter'
 export type * from './types'

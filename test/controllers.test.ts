@@ -130,6 +130,7 @@ describe('CodeStreamController', () => {
     expect(target.querySelector('pre')?.textContent).toBe('const answer = 42\n')
     await controller.finalize({ view: 'diff', original: 'const answer = 0\n', diffStyle: 'split' })
     expect(controller.getState()).toBe('finalized')
+    expect(controller.getStats().renderMode).toBe('highlighted')
     expect(states).toEqual(expect.arrayContaining(['mounting', 'streaming', 'finalizing', 'finalized']))
     expect(target.querySelector('diffs-container')).not.toBeNull()
   })
@@ -147,6 +148,71 @@ describe('CodeStreamController', () => {
       theme: 'updated',
       themeType: 'dark',
     })
+  })
+
+  it('forwards wrapping and line number preferences to the final surface', async () => {
+    const controller = createCodeStream({ lineNumbers: false, wrap: true })
+    controller.append('const answer = 42')
+    await controller.mount(document.createElement('div'))
+    await controller.finalize({ view: 'file' })
+
+    expect((mocks.instances.at(-1) as any).options).toMatchObject({
+      disableLineNumbers: true,
+      overflow: 'wrap',
+    })
+  })
+
+  it('keeps the stream header and gutter aligned with the final file', async () => {
+    const target = document.createElement('div')
+    const controller = createCodeStream({ fileName: 'answer.ts', showHeader: false })
+    controller.append('const answer = 42\n')
+    await controller.mount(target)
+    await controller.flush()
+
+    expect(target.querySelector('.stream-diffs-header')).toBeNull()
+    expect(target.querySelector('.stream-diffs-gutter-text')?.textContent).toBe('1\n2')
+    expect(target.querySelector<HTMLElement>('.stream-diffs-gutter-text')?.style.minWidth).toContain('2ch')
+    expect(target.querySelector<HTMLElement>('.stream-diffs-plain-text')?.style.fontSize).toContain('--diffs-font-size')
+
+    await controller.finalize({ view: 'file' })
+    expect((mocks.instances.at(-1) as any).options).toMatchObject({ disableFileHeader: true })
+  })
+
+  it('renders the streaming header by default and omits the gutter without line numbers', async () => {
+    const target = document.createElement('div')
+    const controller = createCodeStream({ fileName: 'answer.ts', lineNumbers: false })
+    await controller.mount(target)
+
+    expect(target.querySelector('.stream-diffs-header-title')?.textContent).toBe('answer.ts')
+    expect(target.querySelector('.stream-diffs-gutter')).toBeNull()
+
+    await controller.finalize({ view: 'file' })
+    expect((mocks.instances.at(-1) as any).options).toMatchObject({
+      disableFileHeader: false,
+      disableLineNumbers: true,
+    })
+  })
+
+  it('keeps the plain stream visible until the final render commits', async () => {
+    const target = document.createElement('div')
+    const controller = createCodeStream({ language: 'typescript' })
+    controller.append('const answer = 42')
+    await controller.mount(target)
+    await controller.finalize({ view: 'file' })
+
+    const staging = target.querySelector<HTMLElement>('.stream-diffs-finalized')!
+    expect(target.querySelector('.stream-diffs-plain-text')).not.toBeNull()
+    expect(staging.style.position).toBe('absolute')
+    expect(staging.style.opacity).toBe('0')
+
+    mocks.postRenderCallbacks.shift()?.()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(target.querySelector('.stream-diffs-plain-text')).toBeNull()
+    expect(staging.style.position).toBe('')
+    expect(staging.style.opacity).toBe('')
+    expect(target.querySelector('diffs-container')).not.toBeNull()
   })
 
   it('resets a non-prefix snapshot', async () => {

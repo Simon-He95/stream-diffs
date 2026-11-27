@@ -4,62 +4,141 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>stream-diffs capability lab</title>
+  <meta name="description" content="A real-browser lab for streaming code, unified and split diffs, annotations, token hover, selection, inline editing, accept and reject, and merge conflict resolution.">
   <style>
-    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #090b10; color: #f2f4f8; }
+    :root {
+      color-scheme: dark;
+      --bg: #08090c;
+      --panel: #0e1117;
+      --panel-2: #11151c;
+      --border: #222733;
+      --border-strong: #333b4a;
+      --text: #e7ebf1;
+      --muted: #98a2b3;
+      --faint: #6d7788;
+      --accent: #b9f26e;
+      --accent-ink: #0a0d08;
+      --danger: #ff8b7e;
+      font-family: 'Geist Variable', 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
     * { box-sizing: border-box; }
-    body { margin: 0; background: radial-gradient(circle at 12% -10%, #18314a 0, transparent 34rem), #090b10; }
-    main { width: min(1380px, calc(100% - 48px)); margin: 0 auto; padding: 54px 0 96px; }
-    header { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 24px; margin-bottom: 42px; }
-    h1 { margin: 0; font-size: clamp(42px, 7vw, 84px); letter-spacing: -.065em; line-height: .9; }
-    header p { max-width: 620px; margin: 22px 0 0; color: #9aa6b8; font-size: 17px; line-height: 1.55; }
-    .badge { border: 1px solid #2d415a; color: #9ed9ff; padding: 8px 12px; border-radius: 999px; font: 600 12px/1 ui-monospace, monospace; }
-    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
-    .card { min-width: 0; border: 1px solid #202733; border-radius: 16px; background: rgba(13, 16, 23, .82); overflow: hidden; box-shadow: 0 18px 50px rgba(0,0,0,.22); }
+    body {
+      margin: 0;
+      background:
+        linear-gradient(180deg, rgba(185, 242, 110, .045), transparent 380px),
+        var(--bg);
+    }
+    main { width: min(1380px, calc(100% - 48px)); margin: 0 auto; padding: 44px 0 88px; }
+    header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 38px; }
+    .kicker { margin: 0 0 12px; color: var(--accent); font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    h1 { margin: 0; font-size: clamp(38px, 5vw, 62px); line-height: .98; letter-spacing: -.055em; font-weight: 640; }
+    header p { max-width: 620px; margin: 16px 0 0; color: var(--muted); font-size: 15px; line-height: 1.65; }
+    .header-actions { display: flex; gap: 8px; flex: none; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .card { min-width: 0; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); overflow: hidden; }
     .card.wide { grid-column: 1 / -1; }
-    .card-title { display: flex; justify-content: space-between; align-items: center; min-height: 54px; padding: 0 16px; border-bottom: 1px solid #202733; }
-    .card-title h2 { margin: 0; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; }
-    .card-title span { color: #718096; font: 11px ui-monospace, monospace; }
-    .surface { min-height: 210px; }
-    button { appearance: none; border: 1px solid #344155; border-radius: 8px; padding: 7px 10px; background: #151b25; color: #d8e2ef; cursor: pointer; font: 600 12px/1 system-ui; }
-    button:hover { border-color: #5fa8db; color: white; }
-    .actions { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid #202733; }
+    .card-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 50px; padding: 0 16px; border-bottom: 1px solid var(--border); }
+    .card-title h2 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
+    .card-title span { color: var(--faint); font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .surface { min-height: 220px; }
+    .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 10px 12px; border-top: 1px solid var(--border); }
+    #unified-edit-tools { display: none; gap: 7px; }
+    #unified-edit-tools[data-active='true'] { display: flex; }
+    .status { min-height: 36px; padding: 10px 14px; border-top: 1px solid var(--border); color: var(--faint); font: 10.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    button, .btn {
+      appearance: none; display: inline-flex; align-items: center; justify-content: center;
+      height: 32px; padding: 0 11px; border: 1px solid var(--border); border-radius: 8px;
+      background: transparent; color: var(--muted); font-family: inherit;
+      font-size: 12px;
+      font-weight: 560;
+      line-height: 1; white-space: nowrap;
+      cursor: pointer; text-decoration: none; transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+    }
+    button:hover, .btn:hover { border-color: var(--border-strong); color: var(--text); background: var(--panel-2); }
+    button:active, .btn:active { transform: translateY(1px); }
+    button:focus-visible, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    button:disabled { cursor: not-allowed; opacity: .42; }
+    .primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+    .primary:hover { border-color: #c8fa86; background: #c8fa86; color: var(--accent-ink); }
     .review-header { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px; }
     .review-header strong { font-size: 12px; }
-    .review-header em { color: #72d6a2; font: normal 11px ui-monospace, monospace; }
-    .comment { margin: 7px 12px; padding: 10px 12px; border: 1px solid #31455d; border-radius: 9px; background: #111c28; color: #c8d8ea; font-size: 12px; }
-    #token-hover { position: fixed; z-index: 20; display: none; max-width: 280px; padding: 8px 10px; border: 1px solid #40556d; border-radius: 8px; background: #0d131c; box-shadow: 0 10px 30px #0009; color: #cfe9ff; font: 12px ui-monospace, monospace; pointer-events: none; }
-    @media (max-width: 900px) { main { width: min(100% - 24px, 720px); padding-top: 28px; } header { grid-template-columns: 1fr; } .grid { grid-template-columns: 1fr; } .card.wide { grid-column: auto; } }
+    .review-header em { color: #72d6a2; font: normal 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .comment { margin: 7px 12px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-radius: 8px; background: var(--bg); color: #c8d8ea; font-size: 12px; line-height: 1.55; }
+    #token-hover { position: fixed; z-index: 20; display: none; max-width: 280px; padding: 8px 10px; border: 1px solid #40556d; border-radius: 8px; background: #0d131c; box-shadow: 0 10px 30px #0009; color: #cfe9ff; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; pointer-events: none; }
+    .footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--faint); font: 11.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .footer a { color: var(--muted); text-decoration: none; border-bottom: 1px solid var(--border-strong); }
+    .footer a:hover { color: var(--accent); border-color: var(--accent); }
+    @media (max-width: 900px) {
+      main { width: min(100% - 24px, 720px); padding-top: 28px; }
+      header { align-items: flex-start; flex-direction: column; }
+      .grid { grid-template-columns: 1fr; }
+      .card.wide { grid-column: auto; }
+    }
   </style>
 </head>
 <body>
   <main>
     <header>
       <div>
-        <h1>stream-diffs</h1>
-        <p>A real-browser capability lab for streaming code, unified and split diffs, review annotations, token hover, selection, accept/reject, and merge conflict resolution.</p>
+        <p class="kicker">stream-diffs capability lab</p>
+        <h1>Stream it. Review it. Edit it.</h1>
+        <p>A real-browser lab for plain-text streaming, unified and split diffs, annotations, token hover, selection, accept and reject, merge conflicts, and inline editing.</p>
       </div>
-      <div class="badge">@pierre/diffs · lazy loaded</div>
+      <div class="header-actions">
+        <a class="btn" href="https://stream-diffs.pages.dev/" target="_blank" rel="noreferrer">Docs</a>
+        <a class="btn primary" href="https://stream-diffs.pages.dev/playground.html" target="_blank" rel="noreferrer">Playground</a>
+      </div>
     </header>
+
     <section class="grid">
       <article class="card">
-        <div class="card-title"><h2>Unified review</h2><span>annotations · token hover</span></div>
+        <div class="card-title"><h2>Unified review</h2><span>annotations, token hover, inline edit</span></div>
         <div id="unified" class="surface"></div>
-        <div class="actions"><button id="accept">Accept hunk</button><button id="reject">Reject hunk</button></div>
+        <div class="actions">
+          <button id="accept">Accept hunk</button>
+          <button id="reject">Reject hunk</button>
+          <button id="unified-edit" class="primary">Edit inline</button>
+          <span id="unified-edit-tools">
+            <button id="unified-undo">Undo</button>
+            <button id="unified-redo">Redo</button>
+          </span>
+        </div>
+        <div id="unified-status" class="status">Ready</div>
       </article>
+
       <article class="card">
         <div class="card-title"><h2>Split review</h2><span>select additions</span></div>
         <div id="split" class="surface"></div>
         <div class="actions"><button id="select">Select changed line</button></div>
+        <div id="split-status" class="status">Ready</div>
       </article>
+
       <article class="card wide">
-        <div class="card-title"><h2>Merge conflict</h2><span>current · incoming · both</span></div>
+        <div class="card-title"><h2>Merge conflict</h2><span>current, incoming, both</span></div>
         <div id="merge" class="surface"></div>
+        <div class="actions">
+          <button id="merge-current">Resolve current</button>
+          <button id="merge-incoming">Resolve incoming</button>
+          <button id="merge-both" class="primary">Keep both</button>
+          <button id="merge-reset">Reset</button>
+        </div>
+        <div id="merge-status" class="status">Ready</div>
       </article>
+
       <article class="card wide">
-        <div class="card-title"><h2>Append-only stream</h2><span>FileStream → File</span></div>
+        <div class="card-title"><h2>Stream then diff</h2><span>plain text to split diff</span></div>
         <div id="stream" class="surface"></div>
+        <div class="actions"><button id="stream-replay" class="primary">Replay stream</button></div>
+        <div id="stream-status" class="status">Ready</div>
       </article>
     </section>
+
+    <footer class="footer">
+      <span>Imports the local source entry. No Monaco. No worker.</span>
+      <span><a href="https://github.com/Simon-He95/stream-diffs" target="_blank" rel="noreferrer">GitHub</a> | <a href="https://stream-diffs.pages.dev/guide/editing.html" target="_blank" rel="noreferrer">Editing guide</a></span>
+    </footer>
   </main>
   <div id="token-hover"></div>
   <script type="module" src="/demo.ts"></script>

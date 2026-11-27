@@ -139,6 +139,11 @@ describe('real @pierre/diffs renderers', () => {
       expect(target.querySelector('diffs-container')?.shadowRoot?.textContent).toContain('42')
     }, { timeout: 5000 })
     expect(controller.resolveConflict(0, 'incoming')?.contents).toContain('answer = 42')
+    await vi.waitFor(() => {
+      const text = target.querySelector('diffs-container')?.shadowRoot?.textContent ?? ''
+      expect(text).not.toContain('<<<<<<<')
+      expect(text).toContain('answer = 42')
+    }, { timeout: 5000 })
     controller.dispose()
   })
 

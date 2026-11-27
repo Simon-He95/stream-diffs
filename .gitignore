@@ -3,3 +3,9 @@ dist
 coverage
 .tmp
 .DS_Store
+*.log
+
+.vitepress/cache
+.wrangler
+docs/.vitepress/cache
+docs/.vitepress/dist

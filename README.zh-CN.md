@@ -1,6 +1,28 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Simon-He95/stream-diffs/main/docs/public/social-preview.png" alt="stream-diffs: 流式渲染代码，落成可审阅的 diff" width="100%">
+</p>
+
 # stream-diffs
 
-面向 AI 输出的轻量、流式代码与 Diff 渲染库，默认只读，可按需开启编辑。底层使用 [`@pierre/diffs`](https://diffs.com/) 与 Shiki；流式阶段不创建 Monaco model 和 worker，结束后可切换为可交互的 File、Diff 或 Git 冲突解决界面。
+[![npm version](https://img.shields.io/npm/v/stream-diffs?style=flat-square&color=b9f26e&label=npm)](https://www.npmjs.com/package/stream-diffs)
+[![npm downloads](https://img.shields.io/npm/dm/stream-diffs?style=flat-square&color=b9f26e)](https://www.npmjs.com/package/stream-diffs)
+[![CI](https://github.com/Simon-He95/stream-diffs/actions/workflows/ci.yml/badge.svg)](https://github.com/Simon-He95/stream-diffs/actions/workflows/ci.yml)
+[![docs](https://img.shields.io/badge/docs-live-b9f26e?style=flat-square)](https://stream-diffs.pages.dev/)
+[![MIT license](https://img.shields.io/badge/license-MIT-b9f26e?style=flat-square)](https://github.com/Simon-He95/stream-diffs/blob/main/LICENSE)
+
+面向 AI 输出的流式代码高亮与可审阅 diff。回答还在生成时先以纯文本快速落地，完成时做一次准确高亮，需要时再按需加载行内编辑器。底层使用 [`@pierre/diffs`](https://diffs.com) 和 Shiki。不创建 Monaco model，不强制 worker。
+
+[在线 Playground](https://stream-diffs.pages.dev/playground.html) | [文档站点](https://stream-diffs.pages.dev/) | [API 参考](https://stream-diffs.pages.dev/api.html) | [示例](https://stream-diffs.pages.dev/examples.html)
+
+## 为什么用它
+
+AI 聊天不需要在每条消息里塞一个完整代码编辑器。它需要一条足够便宜的流式路径，以及一个足够好的审阅界面。
+
+- **流式便宜。** 增量写入同一个纯文本 `<pre>`，按帧合并，自动跟随底部。没有文本模型，没有逐 token 高亮，没有反复布局。
+- **只高亮一次。** `finalize()` 用完整快照做一次 Shiki 渲染。Diff 也从完整内容计算，词级高亮是准确的。纯文本阶段已经使用最终文件的字宽、行高、头部和行号槽位，finalize 成 file 时高亮落下来不会移动代码；finalize 成 diff 会按设计切换到 hunk 视图。
+- **真的能审阅。** 统一与分栏布局、行内注释、token hover、受控选区、接受与拒绝、合并冲突。
+- **按需编辑。** `startEditing()` 才加载上游编辑器代码，支持草稿恢复、撤销与重做。
+- **足够小。** 根入口无框架依赖，SSR 安全，`mount()` 前不加载渲染器。第一方运行时约 17.3 kB gzip。
 
 ## 安装
 
@@ -8,13 +30,17 @@
 pnpm add stream-diffs
 ```
 
-Vue 组件入口需要 Vue 3：
+```bash
+npm install stream-diffs
+```
+
+Vue 组件是可选的：
 
 ```bash
 pnpm add stream-diffs vue
 ```
 
-## 流式代码
+## 快速开始
 
 ```ts
 import { createCodeStream } from 'stream-diffs'
@@ -23,85 +49,102 @@ const output = createCodeStream({
   fileName: 'answer.ts',
   language: 'typescript',
   theme: { dark: 'github-dark', light: 'github-light' },
-  maxHeight: 600,
+  maxHeight: 520,
   lineNumbers: true,
   autoScroll: 'near-bottom',
 })
 
-await output.mount(document.querySelector('#code')!)
-output.append('export const ')
-output.append('answer = 42\n')
-await output.finalize({ view: 'file' })
-```
+await output.mount(document.querySelector('#output')!)
 
-实时高亮默认保护阈值为 10,000 行或 1,000,000 字符。超过任一阈值后会终止持续增长的高亮 DOM，继续累积文本并使用只追加纯文本显示；最终仍能生成准确的 File 或 Diff：
+for await (const delta of modelStream)
+  output.append(delta)
 
-```ts
-const output = createCodeStream({
-  limits: {
-    maxStreamingLines: 20_000,
-    maxStreamingChars: 2_000_000,
-    overflowBehavior: 'stop-highlighting',
-  },
-  onOverflow: stats => console.warn('已停止实时高亮', stats),
-})
-```
-
-这些是 `stream-diffs` 的安全默认值，不是 Diffs 官方上限。宿主已限制输出长度时可传入 `limits: false`。
-
-`append()` 是性能最佳的增量路径。对于每次返回完整文本的 SDK，可以使用：
-
-```ts
-output.updateSnapshot('export')
-output.updateSnapshot('export const')
-output.updateSnapshot('export const answer = 42')
-```
-
-也可以直接消费 `ReadableStream<string>` 或异步迭代器：
-
-```ts
-await output.consume(response.body!)
 await output.finalize({
   view: 'diff',
   original: previousSource,
   diffStyle: 'split',
+  enableLineSelection: true,
 })
 ```
 
-## 单列与双列 Diff
+流式阶段刻意使用纯文本。高亮从 `finalize()` 开始，这时一次准确的渲染才值得成本。也支持累计快照：
+
+```ts
+output.updateSnapshot('export const ')
+output.updateSnapshot('export const answer = 42')
+```
+
+## 渲染静态 diff
 
 ```ts
 import { createDiffSurface } from 'stream-diffs'
 
 const review = createDiffSurface({
   kind: 'diff',
-  oldFile: { name: 'src/app.ts', contents: before },
-  newFile: { name: 'src/app.ts', contents: after },
+  oldFile: { name: 'src/cart.ts', contents: before, lang: 'typescript' },
+  newFile: { name: 'src/cart.ts', contents: after, lang: 'typescript' },
+  annotations: [{
+    side: 'additions',
+    lineNumber: 14,
+    metadata: { author: 'Mina', body: '提交前校验这个输入。' },
+  }],
   options: {
-    diffStyle: 'unified', // 单列
-    // diffStyle: 'split', // 双列
+    diffStyle: 'unified', // 或 'split'
     diffIndicators: 'bars',
     lineDiffType: 'word-alt',
     enableLineSelection: true,
+    renderAnnotation(annotation) {
+      const node = document.createElement('div')
+      node.textContent = annotation.metadata.body
+      return node
+    },
   },
 })
 
-await review.mount(document.querySelector('#diff')!)
-review.setSelectedLines({ start: 8, end: 12, side: 'additions' })
+await review.mount(document.querySelector('#review')!)
+review.acceptReject(0, 'accept')
+const resolved = review.getResolvedFile()
 ```
 
-`kind: 'file'` 渲染静态代码，`kind: 'merge-conflict'` 渲染 Git 冲突解决 UI。
+支持 `file`、`diff`、`patch` 和 `merge-conflict` 四种输入。选项、注释、token 回调、自定义头部和 worker 池都走同一个 controller。
 
-原始 Git patch 与预解析 `FileDiffMetadata` 也可以直接渲染：
+## 行内编辑
+
+默认只读。用户需要时再开启：
 
 ```ts
-createDiffSurface({ kind: 'patch', patch: unifiedPatch, fileIndex: 0 })
-createDiffSurface({ kind: 'diff', fileDiff: parsedMetadata })
+const editor = await surface.startEditing({
+  onChange: event => queueSave(event.file),
+  onComplete: event => event.file.contents === saved ? 'reject' : 'accept',
+}, 'review-draft')
+
+surface.applyEdits(edits)
+surface.undo()
+surface.redo()
+surface.stopEditing('complete')
 ```
 
-## 在 markstream-vue 中自动使用
+编辑器代码只在第一次开启会话时加载。`startEditing()` 会等待 hydration 和首帧附着完成，因此返回后可以立即 `applyEdits()`。
 
-`markstream-vue` 会动态优先选择已安装的 `stream-diffs`，现有 CodeBlock 用法无需改变：
+## Vue
+
+```vue
+<script setup lang="ts">
+import { StreamCode, StreamDiff, StreamMergeConflict } from 'stream-diffs/vue'
+</script>
+
+<template>
+  <StreamCode :code="answer" language="typescript" :loading="streaming" />
+  <StreamDiff :original="before" :modified="after" diff-style="split" />
+  <StreamMergeConflict :code="conflicted" language="typescript" />
+</template>
+```
+
+`StreamCode` 与 `StreamDiff` 在 `loading` 为 false 且组件可见时才切换到最终可交互界面。每个组件都通过 ref 暴露 `getController()`。
+
+## markstream-vue
+
+`markstream-vue` 在检测到 `stream-diffs` 时会自动优先使用它。已有 `MarkdownRender` 和 `CodeBlockNode` 用法不需要修改：
 
 ```bash
 pnpm add markstream-vue stream-diffs
@@ -111,113 +154,71 @@ pnpm add markstream-vue stream-diffs
 <MarkdownRender :content="markdown" :loading="streaming" />
 ```
 
-高级配置继续通过已有的 `codeBlockProps.monacoOptions` 传入；保留这个属性名是为了兼容现有 API：
+两个可渲染 runtime 都安装时，`stream-diffs` 优先。移除它即可显式使用 `stream-monaco`。
 
-```ts
-const codeBlockProps = {
-  monacoOptions: {
-    diffStyle: 'split',
-    enableLineSelection: true,
-    onLineSelected: range => console.log(range),
-    onTokenEnter: ({ tokenText, tokenElement }) => {
-      showHover(tokenText, tokenElement)
-    },
-    lineAnnotations: comments,
-    renderAnnotation: renderComment,
-    onController: controller => codeController = controller,
-  },
-}
+## 在线体验
+
+[Playground](https://stream-diffs.pages.dev/playground.html) 直接运行同一套公开 controller API：
+
+- 修改两侧源码，实时查看 diff 刷新。
+- 切换统一和分栏布局。
+- 开关注释、token hover 和行选区。
+- 在渲染后的 diff 上直接开启行内编辑。
+- 解决合并冲突。
+- 流式写入一段代码，再 finalize 成 diff 或文件。
+
+![stream-diffs playground](https://raw.githubusercontent.com/Simon-He95/stream-diffs/main/docs/public/playground.png)
+
+本地实验页：
+
+```bash
+pnpm install
+pnpm example
 ```
 
-流式阶段 markstream 保留自己的 `<pre>`。代码块完整且进入可视区域后，它只创建一次最终的静态 `File` 或 `FileDiff`，等待最新渲染稳定后再原子切换；完整冲突标记会进入冲突解决 UI。两种可选渲染器同时安装时优先 `stream-diffs`；移除它即可显式使用 `stream-monaco`。
+## 性能
 
-首次冷启动仍需异步初始化共享的 Shiki highlighter，因此 markstream 会保留 `<pre>`，直到 Diffs surface ready；它不创建 Monaco worker 或 model。实测 Chrome 中冷启动 fallback 中位数为 72.4 ms，stream-monaco 为 913.0 ms；1、12、24 threads 压测均未检测到容器高度回落。方法和复现命令见[性能与包体积](./docs/performance.md#browser-streaming-benchmark)。
+来自 markstream-vue 的 Chrome 基准（Chrome 150，1440x1000，三次重复）：
 
-兼容运行时提供 `whenVisualReady()`。只有它返回 `true` 时适配层才移除 `<pre>`；返回 `false` 表示创建已过期或被取消，必须继续保留 fallback。
+| 指标 | stream-diffs | stream-monaco |
+| --- | ---: | ---: |
+| 冷启动 fallback 可见时间中位数 | 72.4 ms | 913.0 ms |
+| 渲染器 DOM 节点数 | 31 | 405 |
+| 帧 p95 | 10.2 ms | 16.6 ms |
 
-## 交互能力
+完整场景与方法见[性能文档](https://stream-diffs.pages.dev/performance.html)。这些是特定机器上的测量结果，不是固定保证。
 
-- Custom headers：`renderHeaderPrefix`、`renderHeaderMetadata`、`renderCustomHeader`。
-- Token Hover：`onTokenEnter`、`onTokenLeave`、`onTokenClick`。
-- 行选择：`enableLineSelection`、`onLineSelected`、`setSelectedLines()`。
-- Comments & Annotations：`annotations`、`renderAnnotation`、`setAnnotations()`。
-- Accept/Reject：`acceptReject(hunkIndex, 'accept' | 'reject' | 'both')`，也支持指定 `changeIndex`。
-- Merge：`mergeConflictActionsType`、`onMergeConflictResolve`、`resolveConflict()`。
-- 完整原生能力：`getNativeInstance()` 返回当前 `File`、`FileDiff` 或 `UnresolvedFile`；`getResolvedFile()` 返回 Accept/Reject 后的完整文件。
+## 文档
 
-示例：
+- [介绍](https://stream-diffs.pages.dev/guide/introduction.html)
+- [快速开始](https://stream-diffs.pages.dev/guide/getting-started.html)
+- [流式代码](https://stream-diffs.pages.dev/guide/streaming.html)
+- [Diff 与审阅](https://stream-diffs.pages.dev/guide/diffs.html)
+- [合并冲突](https://stream-diffs.pages.dev/guide/merge-conflicts.html)
+- [行内编辑](https://stream-diffs.pages.dev/guide/editing.html)
+- [Vue](https://stream-diffs.pages.dev/guide/vue.html)
+- [markstream-vue](https://stream-diffs.pages.dev/markstream-vue.html)
+- [框架集成配方](https://stream-diffs.pages.dev/guide/recipes.html)
+- [故障排查](https://stream-diffs.pages.dev/guide/troubleshooting.html)
+- [API 参考](https://stream-diffs.pages.dev/api.html)
 
-```ts
-review.acceptReject(0, 'accept')
-review.setAnnotations([
-  { side: 'additions', lineNumber: 14, metadata: { body: '这里需要校验输入' } },
-])
+## 设计约束
 
-const merge = createDiffSurface({
-  kind: 'merge-conflict',
-  file: { name: 'app.ts', contents: conflictedSource },
-  options: {
-    mergeConflictActionsType: 'default',
-    onMergeConflictResolve(file) {
-      save(file.contents)
-    },
-  },
-})
+- 流式阶段只读且只追加。
+- 增量 append 比累计快照更快。
+- 流式阶段使用纯文本，准确的 diff 从最终快照生成。
+- 没有 Monaco 文本模型、补全、LSP 或诊断运行时。
+- 光标编辑与撤销属于 `surface.startEditing()` 或 `stream-diffs/edit`。
+- `@pierre/diffs` 在首次 `mount()` 时加载，因此 import `stream-diffs` 仍然 SSR 安全。
+
+## 贡献
+
+欢迎 issue 和 PR。开发、测试、提交规范与发布流程见 [CONTRIBUTING.md](https://github.com/Simon-He95/stream-diffs/blob/main/CONTRIBUTING.md)。
+
+```bash
+pnpm typecheck && pnpm test && pnpm build && pnpm docs:build
 ```
 
-当前底层 Diffs 版本把 `UnresolvedFile`、merge resolution 和 token hooks 标记为实验性能力，`stream-diffs` 会如实保留这个状态与原生类型。
-
-## Vue 组件
-
-```vue
-<script setup lang="ts">
-import { StreamCode, StreamDiff, StreamMergeConflict } from 'stream-diffs/vue'
-</script>
-
-<template>
-  <StreamCode :code="generated" language="typescript" :loading="streaming" />
-  <StreamDiff :original="before" :modified="after" diff-style="split" />
-  <StreamMergeConflict :code="conflictedSource" language="typescript" />
-</template>
-```
-
-完整说明见 [API 文档](./docs/api.md)、[性能与包体积](./docs/performance.md) 与 [markstream-vue 接入文档](./docs/markstream-vue.md)。
-
-运行 `pnpm example` 可以打开真实浏览器能力实验页，同页覆盖 unified/split review、annotations、token hover、行选择、accept/reject、merge actions 和 streaming-to-file 转换。
-
-同步的 Pierre 底层工具使用独立入口，避免根入口提前加载渲染依赖：
-
-```ts
-import { parseDiffFromFile, parsePatchFiles } from 'stream-diffs/pierre'
-```
-
-就地编辑是可选能力，且按需加载：只有宿主真正开始编辑时才会加载 upstream editor：
-
-```ts
-const editor = await surface.startEditing({
-  onChange: event => save(event.file),
-  onComplete: event => event.file.contents === saved ? 'reject' : 'accept',
-}, 'review-draft')
-
-surface.applyEdits(edits)
-surface.undo()
-surface.redo()
-surface.revealLine(42, 'additions')
-surface.stopEditing('complete')
-```
-
-`startEditing()` 会自动等待 `prepareForEditing()` 以及 editor 首次完成 attach 的 render sync：partial patch 先完成 hydration，正在进行的 worker pool 高亮会被复用而不是回到主线程重跑，返回后即可直接 `applyEdits()`。如果确定某个 surface 会被编辑，渲染时传 `useTokenTransformer: true`，upstream 就能复用已渲染行。需要自己管理会话时仍可从 `stream-diffs/edit` 使用原生 `Editor`；它复用同一份 `@pierre/diffs`，highlighter 与 edit-state 注册表不会被拆成两份。
-
-## 设计边界
-
-- 流式阶段只读、只追加。
-- delta append 的性能优于 cumulative snapshot。
-- 流式阶段使用 `FileStream`，最终 Diff 基于完整 snapshot 计算，保证准确性。
-- 超长输出会继续以只追加纯文本显示，并仍可最终生成准确 File 或 Diff。
-- 不包含 Monaco model、补全、LSP 与诊断运行时。
-- cursor editing 与 undo/redo 由 `surface.startEditing()` / `stream-diffs/edit` 提供；流式管线不持有它们，替换 native surface 会结束编辑会话。
-- `@pierre/diffs` 在首次 mount 时动态加载，SSR import 安全。
-
-## License
+## 许可证
 
 MIT

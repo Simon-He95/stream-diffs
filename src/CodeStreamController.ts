@@ -2,7 +2,17 @@ import type { DiffLineAnnotation, FileDiffOptions, FileOptions, LineAnnotation }
 import type { DiffSurfaceController } from './DiffSurfaceController'
 import type { CodeStreamOptions, CodeStreamState, CodeStreamStats, FinalizeOptions } from './types'
 import { createDiffSurface } from './DiffSurfaceController'
-import { compatibleWorkerManager, createShell, fileContents, TextAccumulator } from './internal'
+import {
+  compatibleWorkerManager,
+  createShell,
+  createStreamGutter,
+  createStreamHeader,
+  fileContents,
+  streamCodeFont,
+  streamCodeSize,
+  streamLineHeight,
+  TextAccumulator,
+} from './internal'
 
 /**
  * Keeps streaming updates in one plain `<pre>`. Syntax highlighting is only
@@ -27,6 +37,8 @@ export class CodeStreamController {
   private surface?: HTMLElement
   private finalizedSurface?: DiffSurfaceController<any>
   private plainText?: HTMLPreElement
+  private gutter?: { el: HTMLDivElement, text: HTMLSpanElement }
+  private gutterLineCount = 1
   private finalizePromise?: Promise<void>
   private renderListeners = new Set<() => void>()
   private finalizedRenderSubscription?: { dispose(): void }
@@ -45,6 +57,8 @@ export class CodeStreamController {
     this.finalizedSurface = undefined
     this.finalizedRenderSubscription = undefined
     this.plainText = undefined
+    this.gutter = undefined
+    this.gutterLineCount = 1
     this.pending = []
 
     this.setState('mounting')
@@ -120,6 +134,7 @@ export class CodeStreamController {
     const batch = this.pending.join('')
     this.pending.length = 0
     this.plainText?.append(batch)
+    this.syncGutter()
     this.stats.writes++
     this.followViewport(shouldFollow)
     this.emitRender()
@@ -175,6 +190,9 @@ export class CodeStreamController {
         options: {
           theme: this.options.theme,
           themeType: this.options.themeType,
+          disableLineNumbers: this.options.lineNumbers === false,
+          disableFileHeader: this.options.showHeader === false,
+          overflow: this.options.wrap ? 'wrap' : 'scroll',
           ...fileOptions,
         },
         workerManager: compatibleWorkerManager(workerManager ?? this.options.workerManager),
@@ -196,6 +214,9 @@ export class CodeStreamController {
         options: {
           theme: this.options.theme,
           themeType: this.options.themeType,
+          disableLineNumbers: this.options.lineNumbers === false,
+          disableFileHeader: this.options.showHeader === false,
+          overflow: this.options.wrap ? 'wrap' : 'scroll',
           ...diffOptions,
         },
         workerManager: compatibleWorkerManager(workerManager ?? this.options.workerManager),
@@ -204,30 +225,95 @@ export class CodeStreamController {
 
     const staging = document.createElement('div')
     staging.className = 'stream-diffs-finalized'
-    await finalizedSurface.mount(staging)
-    if (generation !== this.generation) {
-      finalizedSurface.dispose()
-      return
-    }
+    // Keep the plain text in normal flow and stage the highlighted surface over
+    // it. The swap only happens after the native render is visually ready, so a
+    // cold Shiki render never flashes an empty final surface.
+    staging.style.position = 'absolute'
+    staging.style.inset = '0'
+    staging.style.opacity = '0'
+    staging.style.pointerEvents = 'none'
+    surface.style.position = 'relative'
+    surface.append(staging)
 
     const shell = this.shell
     const scrollTop = shell?.scrollTop ?? 0
     const distanceToBottom = shell
       ? shell.scrollHeight - shell.scrollTop - shell.clientHeight
       : 0
-    surface.replaceWith(staging)
-    this.surface = staging
-    this.plainText = undefined
-    this.finalizedSurface = finalizedSurface
-    this.finalizedRenderSubscription = finalizedSurface.onDidRender(() => this.emitRender())
-    if (shell) {
-      if (this.options.autoScroll === 'always' || (this.options.autoScroll !== 'never' && distanceToBottom <= (this.options.autoScrollThresholdPx ?? 32)))
-        shell.scrollTop = shell.scrollHeight
-      else
-        shell.scrollTop = scrollTop
+    const follow = this.options.autoScroll === 'always'
+      || (this.options.autoScroll !== 'never' && distanceToBottom <= (this.options.autoScrollThresholdPx ?? 32))
+
+    let committed = false
+    const commit = () => {
+      if (committed || generation !== this.generation)
+        return
+      committed = true
+
+      const finish = () => {
+        if (generation !== this.generation)
+          return
+        for (const child of [...surface.children]) {
+          if (child !== staging)
+            child.remove()
+        }
+        staging.style.position = ''
+        staging.style.inset = ''
+        staging.style.opacity = ''
+        staging.style.pointerEvents = ''
+        staging.style.transition = ''
+        staging.style.willChange = ''
+        this.plainText = undefined
+        this.gutter = undefined
+        this.gutterLineCount = 1
+        if (shell)
+          shell.scrollTop = follow ? shell.scrollHeight : scrollTop
+        this.emitRender()
+      }
+
+      // Crossfade the ready highlighted surface over the plain text. The plain
+      // layer stays fully painted underneath, so finalization never exposes an
+      // empty or dimmed frame before the syntax colors arrive.
+      if (!this.plainText || prefersReducedMotion()) {
+        finish()
+        return
+      }
+
+      this.plainText.dataset.streamDiffsState = 'finalizing'
+      staging.style.transition = `opacity ${FINALIZE_FADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`
+      staging.style.willChange = 'opacity'
+      requestAnimationFrame(() => {
+        if (generation !== this.generation)
+          return
+        staging.style.opacity = '1'
+      })
+      setTimeout(finish, FINALIZE_FADE_MS + 40)
     }
+
+    this.finalizedSurface = finalizedSurface
+    this.finalizedRenderSubscription = finalizedSurface.onDidRender(() => {
+      this.emitRender()
+      commit()
+    })
+
+    await finalizedSurface.mount(staging)
+    if (generation !== this.generation) {
+      finalizedSurface.dispose()
+      return
+    }
+    // In tests or custom renderers the post-render hook may never fire. The
+    // readiness promise settles on the real renderer; the onDidRender listener
+    // above commits first when it can.
+    void finalizedSurface.whenVisualReady().then(() => commit()).catch(() => commit())
+
+    this.stats.renderMode = 'highlighted'
     this.setState('finalized')
     this.emitRender()
+  }
+
+  async whenVisualReady() {
+    if (!this.finalizedSurface)
+      return false
+    return this.finalizedSurface.whenVisualReady()
   }
 
   async reset(initialContent = '') {
@@ -239,6 +325,8 @@ export class CodeStreamController {
     this.finalizedSurface = undefined
     this.finalizedRenderSubscription = undefined
     this.plainText = undefined
+    this.gutter = undefined
+    this.gutterLineCount = 1
     this.pending = []
     this.finalizePromise = undefined
     this.text.clear()
@@ -316,6 +404,8 @@ export class CodeStreamController {
     this.finalizedRenderSubscription?.dispose()
     this.container?.replaceChildren()
     this.plainText = undefined
+    this.gutter = undefined
+    this.gutterLineCount = 1
     this.container = undefined
     this.surface = undefined
     this.shell = undefined
@@ -360,15 +450,69 @@ export class CodeStreamController {
   }
 
   private mountPlainText(surface: HTMLElement) {
+    const wrap = Boolean(this.options.wrap)
+    const showHeader = this.options.showHeader !== false
+    const showLineNumbers = this.options.lineNumbers !== false
+
+    const frame = document.createElement('div')
+    frame.className = 'stream-diffs-stream'
+    if (showHeader)
+      frame.append(createStreamHeader(this.fileName()))
+
+    const body = document.createElement('div')
+    body.className = 'stream-diffs-body'
+    body.style.cssText = 'display:flex;align-items:flex-start;min-width:100%;box-sizing:border-box'
+
+    if (showLineNumbers) {
+      const gutter = createStreamGutter(wrap)
+      this.gutter = gutter
+      body.append(gutter.el)
+    }
+
     const pre = document.createElement('pre')
     pre.className = 'stream-diffs-plain-text'
     pre.dataset.streamDiffsState = 'streaming'
-    pre.style.margin = '0'
-    pre.style.whiteSpace = this.options.wrap ? 'pre-wrap' : 'pre'
-    pre.style.overflowWrap = this.options.wrap ? 'anywhere' : 'normal'
+    pre.style.cssText = [
+      'flex:1 1 auto',
+      'min-width:0',
+      'margin:0',
+      `padding:${wrap ? '0' : '8px'} 1ch 8px ${wrap ? '0' : '1ch'}`,
+      'box-sizing:border-box',
+      `font-family:${streamCodeFont()}`,
+      `font-size:${streamCodeSize()}`,
+      `line-height:${streamLineHeight()}`,
+      'tab-size:var(--diffs-tab-size, 2)',
+      'font-variant-ligatures:none',
+      `white-space:${wrap ? 'pre-wrap' : 'pre'}`,
+      `overflow-wrap:${wrap ? 'anywhere' : 'normal'}`,
+      'background:transparent',
+      'color:inherit',
+    ].join(';')
     pre.textContent = this.getText()
-    surface.replaceChildren(pre)
+    body.append(pre)
+
+    frame.append(body)
+    surface.replaceChildren(frame)
     this.plainText = pre
+    this.gutterLineCount = 1
+    this.syncGutter()
+  }
+
+  private fileName() {
+    return this.options.fileName ?? `code.${this.options.language ?? 'txt'}`
+  }
+
+  private syncGutter() {
+    if (!this.gutter)
+      return
+    const target = Math.max(1, this.stats.lines)
+    if (target <= this.gutterLineCount)
+      return
+    let numbers = ''
+    for (let line = this.gutterLineCount + 1; line <= target; line++)
+      numbers += `\n${line}`
+    this.gutter.text.append(numbers)
+    this.gutterLineCount = target
   }
 
   private setState(state: CodeStreamState) {
@@ -387,6 +531,14 @@ export class CodeStreamController {
     this.setState('error')
     this.options.onError?.(error)
   }
+}
+
+const FINALIZE_FADE_MS = 220
+
+function prefersReducedMotion() {
+  return typeof window === 'undefined'
+    || typeof window.matchMedia !== 'function'
+    || window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 function countNewlines(value: string) {

@@ -2,7 +2,7 @@ import type { DiffLineAnnotation } from '@pierre/diffs'
 import type { DiffSurfaceController } from './DiffSurfaceController'
 import type { CodeStreamState, DiffStreamOptions } from './types'
 import { createDiffSurface } from './DiffSurfaceController'
-import { compatibleWorkerManager, createShell, fileContents } from './internal'
+import { compatibleWorkerManager, createShell, createStreamHeader, fileContents, streamCodeFont, streamCodeSize, streamLineHeight } from './internal'
 
 /**
  * A low-cost diff placeholder. It never tokenizes while either side changes;
@@ -84,7 +84,13 @@ export class DiffStreamController<LAnnotation = unknown> {
       oldFile: this.asFile(this.original),
       newFile: this.asFile(this.modified),
       annotations,
-      options: { ...this.options, diffStyle: this.options.diffStyle ?? 'unified' },
+      options: {
+        ...this.options,
+        diffStyle: this.options.diffStyle ?? 'unified',
+        disableLineNumbers: this.options.lineNumbers === false,
+        disableFileHeader: this.options.showHeader === false,
+        overflow: this.options.wrap ? 'wrap' : 'scroll',
+      },
       workerManager: compatibleWorkerManager(this.options.workerManager),
     })
     const staging = document.createElement('div')
@@ -181,6 +187,10 @@ export class DiffStreamController<LAnnotation = unknown> {
     const surface = this.surface
     if (!surface || this.finalizedSurface)
       return
+    const frame = document.createElement('div')
+    frame.className = 'stream-diffs-stream'
+    if (this.options.showHeader !== false)
+      frame.append(createStreamHeader(this.fileName()))
     const root = document.createElement('div')
     root.className = `stream-diffs-diff-pre stream-diffs-diff-pre--${this.options.diffStyle ?? 'unified'}`
     root.dataset.streamDiffsState = 'streaming'
@@ -194,7 +204,8 @@ export class DiffStreamController<LAnnotation = unknown> {
     else {
       root.append(this.createPre(createUnifiedPreview(this.original, this.modified), 'unified'))
     }
-    surface.replaceChildren(root)
+    frame.append(root)
+    surface.replaceChildren(frame)
   }
 
   private createPre(text: string, side: 'deletions' | 'additions' | 'unified') {
@@ -202,10 +213,20 @@ export class DiffStreamController<LAnnotation = unknown> {
     pre.className = `stream-diffs-diff-pre__pane stream-diffs-diff-pre__pane--${side}`
     pre.dataset.side = side
     pre.style.margin = '0'
+    pre.style.padding = '8px 1ch'
+    pre.style.boxSizing = 'border-box'
+    pre.style.fontFamily = streamCodeFont()
+    pre.style.fontSize = streamCodeSize()
+    pre.style.lineHeight = streamLineHeight()
     pre.style.whiteSpace = this.options.wrap ? 'pre-wrap' : 'pre'
     pre.style.overflowWrap = this.options.wrap ? 'anywhere' : 'normal'
+    pre.style.background = 'transparent'
     pre.textContent = text
     return pre
+  }
+
+  private fileName() {
+    return this.options.fileName ?? `code.${this.options.language ?? 'txt'}`
   }
 
   private asFile(contents: string) {

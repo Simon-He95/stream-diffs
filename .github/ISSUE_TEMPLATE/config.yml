@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://stream-diffs.pages.dev/
+    about: Guides, API reference, and the interactive playground.
+  - name: Questions and ideas
+    url: https://github.com/Simon-He95/stream-diffs/discussions
+    about: Ask a usage question or share an integration.
